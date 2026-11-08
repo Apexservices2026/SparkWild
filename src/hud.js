@@ -49,11 +49,15 @@ const article = (name) => (/^[aeiou]/i.test(name) ? 'an ' : 'a ') + name.toLower
 const TIPS = [
   { id: 'walk', when: (g) => g.counters.walked < 1, done: (g) => g.counters.walked > 4, life: 40,
     t: () => 'Slide your <b>left thumb</b> to walk. Push further to run.',
-    k: () => 'Walk with <b>W A S D</b> or the arrows. Hold <b>Shift</b> to run.' },
+    k: () => 'Run with <b>W A S D</b> or the arrows. Hold <b>Shift</b> to sprint.' },   // Maverick: moves
   { id: 'thornmaw', when: (g) => near(g, 'thornmaw') < 22, done: (g, s) => g.counters.kill_thornmaw > s.maw || near(g, 'thornmaw') > 32, btn: 'btn-atk',
     // Maverick: combat (roll through the lunge, then hit it while it wobbles)
     t: () => 'A Briarlurk! When it glows, tap <b>DODGE</b>, then <b>ATTACK</b> while it wobbles.',
     k: () => 'A Briarlurk! When it glows, roll with <b>X</b>, then hit <b>Space</b> while it wobbles.' },
+  // Maverick: moves. Once you have fought a little: the dash strike, the finisher and SPRINT
+  { id: 'moves', when: (g) => !!g.combat && g.combat.stats.swings >= 6 && g.combat.stats.dodges >= 1 && !g.combat.busy, done: (g) => g.combat.stats.dashes > 0 && g.combat.stats.finishers > 0, btn: 'btn-atk', life: 20,
+    t: () => 'New moves! <b>ATTACK</b> right after <b>DODGE</b> lunges. Tap, tap, <b>hold</b> for a finisher. <b>SPRINT</b> runs faster.',
+    k: () => 'New moves! Attack right after a roll lunges. Tap, tap, <b>hold</b> for a finisher. <b>Shift</b> sprints.' },
   { id: 'thirsty', when: (g) => g.stats.water < 40, done: (g) => g.stats.water >= 50, btn: 'btn-act',
     t: () => 'Parched? Stand at the pond\'s edge and tap <b>USE</b>.',
     k: () => 'Parched? Stand at the pond\'s edge and press <b>E</b>.' },

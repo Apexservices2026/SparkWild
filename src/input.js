@@ -1,14 +1,16 @@
 // Controls.
-//  PC: WASD/arrows walk, Shift run, E use/gather, Space, F or left click attack (hold for the heavy spin),
-//  X or right click dodge-roll, Tab switches the target, C craft, Q/R turn the view, wheel zoom.
+//  PC: WASD/arrows run, Shift sprints, E use/gather, Space, F or left click attack (hold for the heavy spin;
+//  tap, tap, hold for a finisher), X or right click dodge-roll (attack right after it: a dash strike),
+//  Tab switches the target, C craft, Q/R turn the view, wheel zoom.
 //  Phone: left side of the screen is a thumb joystick (push to its edge to run), drag on the right side turns
 //  the view (a quick sideways flick there switches the target), pinch to zoom, and the round buttons
-//  bottom-right: ATTACK (tap for combos, hold for the heavy spin), DODGE, USE and CRAFT.
+//  bottom-right: ATTACK (tap for combos, hold for the heavy spin), DODGE, SPRINT (a toggle), USE and CRAFT.
 export class Input {
   constructor(canvas, stickEl, knobEl) {
     this.keys = new Set();
     this.move = { x: 0, y: 0 };
     this.run = false;
+    this.sprint = false;  // Maverick: moves (Shift held)
     this.zoomDelta = 0;
     this.turn = 0;        // quarter turns (keys)
     this.turnDrag = 0;    // smooth turning (touch drag), radians
@@ -115,7 +117,9 @@ export class Input {
     if (k.has('KeyS') || k.has('ArrowDown')) y -= 1;
     if (k.has('KeyD') || k.has('ArrowRight')) x += 1;
     if (k.has('KeyA') || k.has('ArrowLeft')) x -= 1;
-    this.run = k.has('ShiftLeft') || k.has('ShiftRight');
+    // Maverick: moves. Keys run (like the stick pushed all the way); Shift sprints on top.
+    this.sprint = k.has('ShiftLeft') || k.has('ShiftRight');
+    this.run = x !== 0 || y !== 0;
     if (this.touch.id !== null) {
       const dx = this.touch.x - this.touch.x0, dy = this.touch.y - this.touch.y0;
       const len = Math.hypot(dx, dy), max = 50;

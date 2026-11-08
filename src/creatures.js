@@ -98,7 +98,7 @@ export class Creatures {
       type, ...parts, x, z, y: this.world.heightAt(x, z), yaw: r() * 6, phase: r() * 6,
       hp: 0, maxHp: 0, tx: x, tz: z, wait: 0, state: 'wander', cool: 0, flash: 0, dead: false, deadT: 0, fleeT: 0, windup: 0,
       // Maverick: combat state (knockback velocity, stagger, lunge, whiff and recovery timers)
-      kvx: 0, kvz: 0, stun: 0, lungeT: 0, hits: 0, hitT: 0, evade: false, hopT: 0, ldx: 0, ldz: 0, lv: 0, bit: false, whiff: 0, recover: 0, poof: false, circle: r() < 0.5 ? 1 : -1,
+      kvx: 0, kvz: 0, liftY: 0, liftV: 0, stun: 0, lungeT: 0, hits: 0, hitT: 0, evade: false, hopT: 0, ldx: 0, ldz: 0, lv: 0, bit: false, whiff: 0, recover: 0, poof: false, circle: r() < 0.5 ? 1 : -1,
     };
     // Briarlurk health: about 5 stone-axe hits at level 1 (a few exchanges), fewer with the spear or iron sword
     c.maxHp = c.hp = type === 'puffhop' ? 12 : 66 + ((this.level || 1) - 1) * 10;
@@ -361,6 +361,12 @@ export class Creatures {
         const sg = Math.max(wu * 1.6 + (c.windup > 0 ? Math.sin(time * 40) * 0.15 : 0), c.flash);
         c.spine.emissive.setRGB(sg, sg * 0.35, sg * 0.75);
       }
+      // Maverick: moves. An uppercut pops it into the air; it falls back with a little bounce-free thump.
+      if (c.liftV || c.liftY) {
+        c.liftV -= 22 * dt; c.liftY = Math.max(0, c.liftY + c.liftV * dt);
+        if (c.liftY === 0) c.liftV = 0;
+        c.g.position.y += c.liftY;
+      }
       c.g.rotation.y = c.yaw;
       if (c.flash !== c.lastFlash) { c.lastFlash = c.flash; for (const m of c.flashMats) m.emissive.setRGB(c.flash, c.flash, c.flash); }
     }
@@ -389,10 +395,11 @@ export class Creatures {
   }
 
   // Maverick: combat. A hit from combat.js: damage, a white flash, knockback (metres) and an optional
-  // stagger (seconds) that stops a wind-up. Returns { killed, c }.
-  strike(c, dmg, dirX, dirZ, knock, stagger) {
+  // stagger (seconds) that stops a wind-up, and an optional lift (an uppercut pops it up). Returns { killed, c }.
+  strike(c, dmg, dirX, dirZ, knock, stagger, lift = 0) {
     if (c.dead) return null;
     c.hp -= dmg; c.flash = 1;
+    if (lift > 0) c.liftV = Math.max(c.liftV, 4.4 * lift);   // Maverick: moves (about 0.45 m up)
     const k = knock * (c.type === 'thornmaw' && c.lungeT > 0 ? 0.4 : 1);
     c.kvx += dirX * k * 8; c.kvz += dirZ * k * 8;
     if (c.type === 'puffhop') c.fleeT = 3;

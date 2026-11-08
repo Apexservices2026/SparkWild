@@ -26,6 +26,7 @@ const OBJECTIVES_TEXT = () => OBJECTIVES[window.game.game.objective].text;
 import { Hud } from './hud.js';
 import { Builder } from './build.js';      // Forge: building
 import { Tutorial } from './tutorial.js';  // Forge: tutorial
+import { WorldMap } from './map.js';       // Forge: map
 import { GameAudio } from './audio.js';
 import { icon } from './items.js';
 
@@ -147,6 +148,19 @@ const builder = new Builder({ scene, world, game, camera, audio, hud, canvas, is
 game.build = builder;
 const tutorial = new Tutorial({ scene, world, game, builder, camera, hud, audio });
 game.tutorial = tutorial;
+// Forge: map. The spinning globe in the top bar opens the full map (the game pauses while it is open).
+// What you have explored rides along in the game's save, so the save and load are wrapped here.
+const SAVE_KEY = 'hearthwild-save-v1';
+const map = new WorldMap({
+  world, game, player, builder, path, audio, globeBtn: $('btn-map'),
+  canOpen: () => playing && !creator.isOpen && $('confirm').hidden && !game.sleeping,
+  onToggle: (open) => { if (open) { if (hud.craftOpen) hud.toggleCraft(false); setPanel(false); } else { input.turn = 0; input.keys.clear(); } },
+});
+{
+  const saveGame = game.save.bind(game), loadGame = game.load.bind(game);
+  game.save = () => { saveGame(); if (!game.noSave) map.saveTo(SAVE_KEY); };
+  game.load = () => { const ok = loadGame(); map.loadFrom(SAVE_KEY, ok); return ok; };
+}
 try {
   const mv = localStorage.getItem('hearthwild-music'), sv = localStorage.getItem('hearthwild-sfx');
   if (mv !== null) audio.setMusicVolume(Number(mv));
@@ -267,9 +281,10 @@ $('opt-quality').addEventListener('change', (e) => {
   location.reload();
 });
 const isTouch = matchMedia('(pointer: coarse)').matches;
+// Maverick: moves (sprint, dash strike, tap-tap-hold finisher)
 const controlsHelp = isTouch
-  ? 'Left thumb walks, push to run. Drag the right side to look around. ATTACK: tap for combos, hold for a spin. DODGE rolls. Tap here to hide.'
-  : 'WASD to walk, Shift to run. E to use, C to craft. Space or click attacks (hold for a spin), X or right-click rolls, Tab picks a target. Q and R spin the view. Click here to hide.';
+  ? 'Left thumb walks, push to run; SPRINT runs faster. Drag the right side to look around. ATTACK: tap for combos, hold for a spin, tap, tap, hold for a finisher. DODGE rolls; ATTACK right after is a dash strike. Tap here to hide.'
+  : 'WASD to run, Shift to sprint. E to use, C to craft. Space or click attacks (hold: spin; tap, tap, hold: finisher), X or right-click rolls (attack right after: dash strike), Tab picks a target. Q and R spin the view. Click here to hide.';
 if (isTouch) $('controls-note').textContent = 'Left thumb: walk, push further to run. Drag the right side to look around. Pinch to zoom. Tap food in your bag to eat.';
 $('ic-act').innerHTML = icon('hand'); $('ic-atk').innerHTML = icon('sword'); $('ic-craft').innerHTML = icon('hammer');
 $('opt-pixel').value = String(PIXEL);
@@ -329,7 +344,7 @@ setMuted(muted);
 
 // controls (while the crafting menu, settings or the start-over card are open, the game ignores them)
 const wake = () => { if (playing && !muted) audio.start(); };
-const menuOpen = () => hud.craftOpen || !$('confirm').hidden || creator.isOpen;
+const menuOpen = () => hud.craftOpen || !$('confirm').hidden || creator.isOpen || map.isOpen;   // Forge: map
 input.on('gesture', wake);
 input.on('action', () => { if (playing && !menuOpen()) game.act(); });
 // Maverick: combat. ATTACK: tap for combos, hold for the heavy spin. DODGE rolls. Tab or a swipe switches the target.
@@ -337,10 +352,11 @@ input.on('attack', () => { if (playing && !menuOpen()) combat.press(); });
 input.on('attackUp', () => combat.release());
 input.on('dodge', () => { if (playing && !menuOpen()) combat.dodge(); });
 input.on('target', (dir) => (playing && !menuOpen() ? combat.cycleTarget(dir) : false));
-input.on('craft', () => { if (playing && $('confirm').hidden && !creator.isOpen) hud.toggleCraft(); });
+input.on('craft', () => { if (playing && $('confirm').hidden && !creator.isOpen && !map.isOpen) hud.toggleCraft(); });   // Forge: map
 // Escape closes the top-most open card
 input.on('escape', () => {
-  if (creator.isOpen) creator.cancel();
+  if (map.isOpen) map.toggle(false);   // Forge: map
+  else if (creator.isOpen) creator.cancel();
   else if (!$('confirm').hidden) setConfirm(false);
   else if (hud.craftOpen) hud.toggleCraft(false);
   else if (!$('panel').hidden) { setPanel(false); $('btn-panel').focus({ preventScroll: true }); }
@@ -351,6 +367,7 @@ const press = (id, fn) => {
 };
 press('btn-atk', () => combat.press());   // Maverick: combat
 press('btn-dodge', () => combat.dodge());
+press('btn-sprint', () => combat.toggleSprint());   // Maverick: moves
 press('btn-act', () => { holdAct = true; game.act(); });
 addEventListener('pointerup', () => { holdAct = false; combat.release(); });
 addEventListener('pointercancel', () => { holdAct = false; combat.release(); });
@@ -539,6 +556,7 @@ function step(dt) {
     } else mk.on = false;
   }
   if (playing && !creator.isOpen) { builder.update(dt); tutorial.update(dt, time); }   // Forge: building and tutorial
+  map.update(dt, playing && !creator.isOpen);   // Forge: map (reveals the fog as you walk; the globe redraws about 15 times a second)
   hud.update(dt);
   const a = audioCtx;
   a.hour = sky.hour; a.night = sky.night; a.rain = w.rain * (1 - w.snow); a.storm = w.storm; a.snow = w.snow; a.wind = w.wind;
@@ -608,6 +626,7 @@ function stepDownGraphics() {
 let paused = false, rafId = 0;
 function frame(now) {
   if (paused) return;   // the loop stops while the page is hidden; it restarts on return
+  if (map.isOpen) { last = now; rafId = requestAnimationFrame(frame); return; }   // Forge: map (the game pauses while the map is open)
   const dt = Math.min((now - last) / 1000, 0.05);
   watchSpeed((now - last) / 1000);
   last = now;
@@ -631,6 +650,7 @@ function setPaused(p) {
 window.game = {
   scene, camera, world, player, sky, weather, cam, renderer, game, creatures, hud, audio, creator, combat,
   builder, tutorial,   // Forge: building and tutorial
+  map,   // Forge: map
   // opens the character creator as after Begin ('new') or from Settings ('edit')
   openCreator(mode = 'edit') { if (mode === 'new' && !playing) newGame(false); else if (playing) changeLook(); },
   setHour(h) { sky.hour = ((h % 24) + 24) % 24; },

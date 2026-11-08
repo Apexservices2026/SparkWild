@@ -50,6 +50,10 @@
     background: rgba(12, 17, 14, 0.8); border-bottom: 1px solid var(--glass-edge); }
   .sb-vitals { display: flex; align-items: center; gap: 12px; }
   .lv { position: relative; width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; }
+  /* Forge: map. The globe at the top-left of the bar (a 48 px tap target; 44 px on phones) */
+  .globe { flex: 0 0 auto; width: 48px; height: 48px; padding: 0; margin: -2px 0; border: 0; border-radius: 50%; background: none; cursor: pointer; display: grid; place-items: center; }
+  .globe canvas { width: 100%; height: 100%; display: block; border-radius: 50%; }
+  .globe:hover canvas { filter: brightness(1.12); }
   .lv svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
   .lv circle { fill: rgba(0, 0, 0, 0.35); stroke-width: 3; }
   .lv .lv-track { stroke: rgba(255, 236, 200, 0.18); }
@@ -217,11 +221,22 @@
   #btn-dodge { width: 60px; height: 60px; grid-column: 2; grid-row: 2; }
   #btn-dodge svg, #btn-bow svg { width: 28px; height: 28px; }
   #btn-bow { width: 52px; height: 52px; grid-column: 2; grid-row: 1; }
-  #btn-bow.later { visibility: hidden; }   /* the bow comes later: its place is kept */
+  /* Maverick: moves. SPRINT sits right above DODGE, in the place kept for the bow (tap: on or off; amber while on).
+     Beside DODGE it crowded the item bar sideways and the joystick upright. */
+  #btn-sprint { width: 52px; height: 52px; grid-column: 2; grid-row: 1; }
+  #btn-sprint svg { width: 26px; height: 26px; }
+  #btn-sprint.on { border-color: var(--ember); background: rgba(150, 92, 30, 0.62); box-shadow: 0 0 0 3px rgba(255, 179, 92, 0.3); }
+  #btn-bow.later { display: none; }   /* the bow comes later (Maverick: moves. SPRINT uses its place for now) */
   #btn-craft { width: 48px; height: 48px; grid-column: 1; grid-row: 1; justify-self: end; }
   #btn-craft.ready { border-color: var(--ember); animation: glow 1.6s ease-in-out infinite; }
   /* Maverick: combat. Upright phones: two columns, so the joystick side stays clear (CRAFT sits where the bow will go) */
   @media (orientation: portrait) and (max-width: 620px) { #btn-craft { grid-column: 2; grid-row: 1; justify-self: center; } #btn-bow.later { display: none; } #btn-atk { width: 78px; height: 78px; } }
+  /* Maverick: moves. Upright phones: three rows, two columns (CRAFT over USE, SPRINT over DODGE), so the joystick side stays clear */
+  @media (orientation: portrait) and (max-width: 620px) {
+    #actions { grid-template-rows: auto auto auto; }
+    #btn-craft { grid-column: 3; grid-row: 1; } #btn-act { grid-row: 2; } #btn-atk { grid-row: 3; }
+    #btn-sprint { grid-column: 2; grid-row: 2; } #btn-dodge { grid-row: 3; }
+  }
   @keyframes glow { 50% { box-shadow: 0 0 0 4px rgba(255, 179, 92, 0.35); } }
   .act .k { position: absolute; transform: translate(22px, 22px); font: 700 12px/1 var(--font-body); background: rgba(255, 236, 200, 0.85); color: #2a2018; border-radius: 4px; padding: 2px 4px; }
   .touch .act .k { display: none; }
@@ -271,8 +286,8 @@
     #objective { max-width: 260px; }
     .touch .hud-tr { gap: 6px; }
     #objective { max-width: 230px; padding: 7px 10px; } .o-text { font-size: 12px; }
-    #btn-act { width: 58px; height: 58px; } #btn-atk { width: 72px; height: 72px; } #btn-dodge { width: 54px; height: 54px; } #btn-bow { width: 46px; height: 46px; } #btn-craft { width: 44px; height: 44px; }   /* Maverick: combat */
-    .slot { width: 40px; height: 40px; } #bottom { max-width: calc(100vw - 300px); }
+    #btn-act { width: 58px; height: 58px; } #btn-atk { width: 72px; height: 72px; } #btn-dodge { width: 54px; height: 54px; } #btn-bow { width: 46px; height: 46px; } #btn-craft { width: 44px; height: 44px; } #btn-sprint { width: 48px; height: 48px; }   /* Maverick: combat, moves */
+    .slot { width: 40px; height: 40px; } #bottom { max-width: calc(100vw - 324px); }   /* Maverick: moves (a full item bar touched DODGE) */
   }
 
   /* ---- touch screens: bigger targets, no tiny text ---- */
@@ -308,6 +323,12 @@
     #statusbar { column-gap: 10px; padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
     .sb-vitals { flex: 1 0 100%; justify-content: space-between; gap: 6px; }
     :root { --ic: clamp(14px, calc((100vw - 92px) / 15), 21px); }
+    /* Forge: map. Row 1: the globe, then hearts, food and water. Row 2: the level badge, meters, sky and buttons */
+    .globe { order: 0; width: 44px; height: 44px; margin: 0; }
+    .sb-vitals { order: 1; flex: 1 0 calc(100% - 54px); }
+    #sb-level { order: 2; width: 34px; height: 34px; }
+    .sb-meters { order: 3; } .sb-sky { order: 4; }
+    :root { --ic: clamp(14px, calc((100vw - 104px) / 15), 21px); }
     .icons { gap: 1px; padding: 2px 1px; }
     .sb-meters { gap: 8px; }
     .m-bar { width: 34px; }
@@ -347,7 +368,8 @@
   /* sideways phones: the status bar stays one slim row (icons shrink to fit, buttons a little smaller) */
   @media (orientation: landscape) and (max-height: 500px) {
     #statusbar { flex-wrap: nowrap; column-gap: 8px; padding-top: calc(2px + env(safe-area-inset-top, 0px)); padding-bottom: 2px; }
-    :root { --ic: clamp(14px, calc((100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 470px) / 17), 21px); }
+    :root { --ic: clamp(14px, calc((100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 500px) / 17), 21px); }   /* Forge: map (room for the globe) */
+    .globe { width: 44px; height: 44px; margin: 0; }
     .sb-vitals { gap: 6px; } .sb-meters { gap: 6px; } .sb-sky { gap: 6px; } .sb-btns { gap: 4px; }
     .lv { width: 32px; height: 32px; }
     .touch .icon-btn { width: 40px; height: 40px; }
@@ -451,8 +473,10 @@
 <canvas id="game" aria-label="Sparkwild game world"></canvas>
 
 <header id="statusbar">
+  <!-- Forge: map. The little spinning globe opens the map (src/map.js); the level badge sits beside it -->
+  <button class="globe" id="btn-map" aria-expanded="false" aria-controls="map" title="Map (M)" aria-label="Open the map (M)"><canvas id="globe" width="88" height="88" aria-hidden="true"></canvas></button>
+  <div class="lv" id="sb-level" role="img" aria-label="Level 1"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="lv-track" cx="18" cy="18" r="15.5"/><circle class="lv-prog" id="lv-prog" cx="18" cy="18" r="15.5" stroke-dasharray="0 100"/></svg><span id="lv-num">Lv 1</span></div>
   <div class="sb-vitals">
-    <div class="lv" id="sb-level" role="img" aria-label="Level 1"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="lv-track" cx="18" cy="18" r="15.5"/><circle class="lv-prog" id="lv-prog" cx="18" cy="18" r="15.5" stroke-dasharray="0 100"/></svg><span id="lv-num">Lv 1</span></div>
     <div class="icons" id="sb-health" role="img" aria-label="Health"></div>
     <div class="icons" id="sb-food" role="img" aria-label="Food"></div>
     <div class="icons" id="sb-water" role="img" aria-label="Water"></div>
@@ -518,6 +542,8 @@
   <button class="act" id="btn-atk" title="Attack (Space or click). Tap for combos, hold for a spin" aria-label="Attack. Tap for combos, hold for a spin"><span id="ic-atk"></span><span class="k">Space</span></button>
   <!-- Maverick: combat. DODGE rolls; the BOW button is a placeholder for later. -->
   <button class="act" id="btn-dodge" title="Dodge roll (X or right-click)" aria-label="Dodge roll"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15a8 8 0 0 1 14.5-4.6"/><path d="M19.5 5.5v5h-5"/><path d="M5 19h7M8 22h6"/></svg><span class="k">X</span></button>
+  <!-- Maverick: moves. SPRINT: tap to sprint (on while you keep moving); Shift on a keyboard -->
+  <button class="act" id="btn-sprint" title="Sprint (hold Shift). Tap to turn on or off" aria-label="Sprint" aria-pressed="false"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/></svg><span class="k">Shift</span></button>
   <button class="act later" id="btn-bow" title="Bow (coming soon)" aria-label="Bow (coming soon)" disabled tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3c7 3 7 15 0 18"/><path d="M6 3v18"/><path d="M4 12h15M16 9l3 3-3 3"/></svg></button>
 </div>
 <div id="craft" hidden><div class="card craft-card"><div class="craft-head"><h2>Craft and build</h2><button class="icon-btn" id="craft-close" aria-label="Close">✕</button></div><div id="craft-list"></div></div></div>

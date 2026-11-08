@@ -8,6 +8,7 @@ const M = (c) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.8 });
 
 // Maverick: feel. Movement and animation tuning.
 const WALK = 4.2, RUN = 7.5;           // top speeds (m/s)
+export const SPRINT = 1.35;            // Maverick: moves. Sprint is this much faster than the full run (about 10 m/s)
 const ACCEL = 9, DECEL = 14, REVERSE = 18;   // how fast speed builds, stops and turns around (per second)
 const TURN_K = 260, TURN_C = 2 * Math.sqrt(260);   // facing spring (critically damped: smooth, no wobble)
 const WAIST = 0.86;                    // the upper body bends here (the hips)
@@ -102,8 +103,9 @@ export class Player {
     // Maverick: combat (combat.js steers the player through ctl each frame):
     //  speed: walk speed multiplier; dash + dx/dz: a roll's velocity (replaces walking);
     //  px/pz: an extra push (the step forward on a swing); face: an angle to turn toward (or null);
-    //  pose: called at the end of update to pose the limbs; posing: true while a combat pose is on.
-    this.ctl = { speed: 1, dash: false, dx: 0, dz: 0, px: 0, pz: 0, face: null, turn: 18, pose: null, posing: false };
+    //  pose: called at the end of update to pose the limbs; posing: true while a combat pose is on;
+    //  sprint: 0..1, how much of the sprint is on (Maverick: moves).
+    this.ctl = { speed: 1, sprint: 0, dash: false, dx: 0, dz: 0, px: 0, pz: 0, face: null, turn: 18, pose: null, posing: false };
     this.kick = { x: 0, z: 0 };   // a shove (a bite knocks you back a little), eases off
     this.invuln = 0;              // seconds left of the dodge roll's invulnerability
     this.build();
@@ -348,10 +350,12 @@ export class Player {
     // speed builds and stops smoothly, the run blends in, and turning around is quick but not a snap.
     const sy = Math.sin(camYaw), cy = Math.cos(camYaw);
     const mx = move.x, my = move.y, mag = Math.min(1, Math.hypot(mx, my));
+    const sw = c.sprint || 0;   // Maverick: moves (sprint goes beyond the full run)
+    run = run || sw > 0.05;
     this.runBlend += ((run && mag > 0.05 ? 1 : 0) - this.runBlend) * expo(run ? 4 : 6, dt);
     const level = w.heightAt(this.pos.x, this.pos.z);
     const wading = level < WATER_Y;
-    const top = mix(WALK, RUN, this.runBlend) * c.speed * (wading ? 0.6 : 1);
+    const top = mix(WALK, RUN, this.runBlend) * (1 + (SPRINT - 1) * sw) * c.speed * (wading ? 0.6 : 1);
     let wx = 0, wz = 0;
     if (mag > 0.001) { wx = (cy * mx - sy * my) / mag * mag * top; wz = (-sy * mx - cy * my) / mag * mag * top; }
     const wl = Math.hypot(wx, wz), vl = Math.hypot(this.vel.x, this.vel.z);
@@ -427,22 +431,27 @@ export class Player {
     this.sp = sp;
     this.moveW += (smooth(sp / 1.6) - this.moveW) * expo(10, dt);
     this.runW += (smooth((sp - WALK * 0.9) / (RUN - WALK * 0.9)) - this.runW) * expo(8, dt);
-    this.running = this.runW > 0.5 && sp > 0.5;
     const mw = this.moveW, rw = this.runW;
     this.phase += dt * (sp > 0.05 ? 2.6 + sp * 1.75 : 0);
     const ph = this.phase, s = Math.sin(ph), co = Math.cos(ph);
-    const legA = (0.5 + 0.38 * rw) * mw, kneeA = (0.75 + 0.75 * rw) * mw, armA = (0.42 + 0.5 * rw) * mw;
+    // Maverick: moves. Sprinting: longer strides, a bigger arm pump and a lower, forward-leaning run
+    const spw = sw * rw;
+    this.sprintW = spw;
+    // 'running' costs extra water and energy (game.js): only while sprinting, not a plain run
+    this.running = spw > 0.5 && sp > 0.5;
+    const legA = (0.5 + 0.38 * rw + 0.14 * spw) * mw, kneeA = (0.75 + 0.75 * rw + 0.3 * spw) * mw, armA = (0.42 + 0.5 * rw + 0.3 * spw) * mw;
     let tl = -s * legA, tr = s * legA;
     let kl = (0.08 + Math.max(0, co) * 0.92) * kneeA + 0.12 * rw * mw, kr = (0.08 + Math.max(0, -co) * 0.92) * kneeA + 0.12 * rw * mw;
     let arx = -s * armA, alx = s * armA;   // arms swing against the legs
     let bob = (0.022 + 0.04 * rw) * mw * Math.cos(2 * ph) - 0.035 * rw * mw;   // lowest as each foot lands
     // leaning: forward with speed and when speeding up, back a touch when stopping, into turns
     this.accLean += (Math.max(-0.12, Math.min(0.14, ds * 0.025)) - this.accLean) * expo(6, dt);
-    let bx = (0.04 + 0.13 * rw) * mw + this.accLean;
+    let bx = (0.04 + 0.13 * rw + 0.13 * spw) * mw + this.accLean;
     const leanGoal = Math.max(-0.2, Math.min(0.2, -this.turnVel * Math.min(sp, RUN) * 0.012));
     this.lean += (leanGoal - this.lean) * expo(8, dt);
     let bz = this.lean;
-    let bry = 0.07 * s * mw, cry = -0.13 * s * mw * (1 - rw * 0.3), crx = 0.03 * rw * mw;
+    let bry = 0.07 * s * mw, cry = -0.13 * s * mw * (1 - rw * 0.3), crx = (0.03 * rw + 0.07 * spw) * mw;
+    bob -= 0.025 * spw * mw;   // Maverick: moves (a little lower while sprinting)
     // the anticipation dip
     if (this.antT > 0) { const k = 1 - this.antT / 0.16, d = Math.sin(k * Math.PI); bob -= 0.045 * d; bx += 0.06 * d; kl += 0.3 * d; kr += 0.3 * d; }
 

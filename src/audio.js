@@ -614,6 +614,23 @@ export class GameAudio {
           this._tone(d, { type: 'triangle', f: 220, f2: 440, sweep: 0.5, t, peak: 0.07, attack: 0.15, decay: 0.12 }); break;
         case 'charged': // fully charged: a bright ding
           this._ep(d, 88, t, 0.2, 0.1); break;
+        // Maverick: moves (sprint, dash strike, finishers)
+        case 'sprint': // setting off at a sprint: a soft airy burst
+          this._noise(d, { t, peak: 0.09, f: 700, f2: 2200, sweep: 0.14, Q: 1, attack: 0.03, decay: 0.06 }); break;
+        case 'dash': // the dash strike: a sharp rising swish over a low thump
+          this._noise(d, { t, peak: 0.17, f: 600, f2: 3800, sweep: 0.1, Q: 1.6, attack: 0.01, decay: 0.05 });
+          this._tone(d, { f: 190, f2: 90, sweep: 0.09, t, peak: 0.14, attack: 0.004, decay: 0.04 }); break;
+        case 'slam': // the ground slam: a deep boom, a crack and a rumble
+          this._tone(d, { f: 95, f2: 32, sweep: 0.35, t, peak: 0.6, attack: 0.003, decay: 0.16 });
+          this._noise(d, { t, peak: 0.36, type: 'lowpass', f: 500, f2: 110, sweep: 0.5, attack: 0.002, decay: 0.18 });
+          this._noise(d, { t, peak: 0.2, f: 2600, Q: 2, attack: 0.001, decay: 0.02 });
+          this._noise(d, { t: t + 0.08, peak: 0.12, type: 'lowpass', f: 220, attack: 0.05, decay: 0.25 }); break;
+        case 'pierce': // the charged thrust: a long thin hiss and a bright ping
+          this._noise(d, { t, peak: 0.15, f: 1200, f2: 5200, sweep: 0.18, Q: 3, attack: 0.02, decay: 0.06 });
+          this._tone(d, { type: 'triangle', f: 1800, f2: 2500, sweep: 0.08, t: t + 0.04, peak: 0.07, attack: 0.002, decay: 0.06 }); break;
+        case 'uppercut': // the uppercut: a rising whoosh and a pop
+          this._noise(d, { t, peak: 0.14, f: 300, f2: 2400, sweep: 0.13, Q: 1.2, attack: 0.02, decay: 0.05 });
+          this._tone(d, { f: 220, f2: 560, sweep: 0.08, t: t + 0.05, peak: 0.16, attack: 0.003, decay: 0.04 }); break;
         case 'ui': // tiny tick
           this._tone(d, { f: 1200, t, peak: 0.08, attack: 0.002, decay: 0.012 }); break;
         default: return; // unknown name: do nothing

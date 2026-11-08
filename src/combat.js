@@ -25,6 +25,19 @@ const DODGE_V = DODGE_DIST / (DODGE_TIME * 2 / Math.PI);   // speed eases out (c
 const STOP = 0.055, STOP_BIG = 0.08;                        // hit-pause on contact (seconds)
 const LOCK_RANGE = { thornmaw: 7.5, puffhop: 4.5 };
 const TRAIL_LIFE = 0.15;
+// Maverick: moves. Sprint, the dash strike and the tap-tap-hold finishers.
+const SPRINT_DRAIN = 0.5;            // energy per second while sprinting (a full run costs about 0.1)
+const SPRINT_MIN = 12, SPRINT_OK = 20;   // too tired below SPRINT_MIN; sprint comes back at SPRINT_OK
+const SPRINT_STICK = 0.6;            // the stick must be pushed this far (a gentle tilt still walks)
+const SPRINT_IDLE = 0.4;             // the SPRINT toggle turns itself off after this long standing still
+const SROLL_TIME = 0.54, SROLL_DIST = 4.6, SROLL_IFRAMES = 0.34;   // a roll out of a sprint: longer, carries the speed
+const SROLL_V = SROLL_DIST / (SROLL_TIME * 0.85);                  // speed eases from sprint speed as 1 - 0.6 k^3 (no jolt)
+const DASH_WINDOW = 0.3;             // ATTACK this soon after a roll ends (or during it) is a dash strike
+const DASH_AT = 0.5;                 // pressed early in a roll, the dash strike comes out halfway through it
+const FIN_HOLD = 0.17;               // the third press held this long turns into the finisher
+const SLAM_R = 3.2;                  // the slam's shockwave radius (m)
+const PIERCE_W = 0.55;               // the charged thrust's half-width (m): everything on the line is hit
+const FADE = 0.14;                   // a recovery cut short by sprint fades out over this long
 
 // ---------- poses ----------
 // Pose channels: right arm (x, y, z), left arm (x, y, z), body twist, body lean, legs, tool angle, body height offset.
@@ -83,16 +96,42 @@ const MOVES = {
   spinFist: { w: 0.04, s: 0.3, r: 0.36, dmg: 1.5, arc: Math.PI, reach: 1.05, knock: 2.2, stagger: 0.6, step: 0.6, crit: true, cancel: 0.65, big: true, spin: true,
     ready: P({ arx: -1.2, ary: -1.2, arz: -0.4, alx: -1.2, aly: 1.2, alz: 0.4, bry: -1.1, brx: 0.15, ll: -0.5, lr: 0.5, bpy: -0.12 }),
     hit: P({ arx: -1.5, ary: -1.45, arz: -0.3, alx: -1.5, aly: 1.45, alz: 0.3, bry: -0.6, brx: 0.12, ll: -0.3, lr: 0.3, bpy: -0.06 }) },
+
+  // Maverick: moves. Dash strikes (ATTACK during or right after a roll): a low, quick lunge with extra reach.
+  dashJab: { w: 0.07, s: 0.11, r: 0.3, dmg: 1.35, arc: 0.8, reach: 1.4, knock: 0.9, step: 1.7, single: true, cancel: 0.4, dash: true, sfx: 'dash',
+    ready: P({ arx: -0.5, arz: -0.3, alx: -0.9, alz: 0.3, bry: 0.35, brx: 0.28, ll: 0.2, lr: -0.5, bpy: -0.13 }),
+    hit: P({ arx: -1.65, ary: 0.25, arz: -0.1, alx: -0.8, alz: 0.3, bry: -0.5, brx: 0.36, ll: 0.35, lr: -0.75, bpy: -0.1 }) },
+  dashCut: { w: 0.07, s: 0.11, r: 0.3, dmg: 1.35, arc: 0.85, reach: 1.4, knock: 0.9, step: 1.7, cancel: 0.4, trail: true, dash: true, sfx: 'dash',
+    ready: P({ arx: -1.0, ary: -1.5, arz: -0.2, alx: -0.2, alz: 0.35, bry: -0.75, brx: 0.28, ll: -0.6, lr: 0.5, tool: 2.75, bpy: -0.14 }),
+    hit: P({ arx: -1.3, ary: 1.45, arz: -0.1, alx: 0.3, alz: 0.3, bry: 0.8, brx: 0.32, ll: -0.75, lr: 0.5, tool: 2.75, bpy: -0.11 }) },
+  dashThrust: { w: 0.07, s: 0.11, r: 0.3, dmg: 1.35, arc: 0.5, reach: 1.4, knock: 0.9, step: 1.9, single: true, cancel: 0.4, trail: true, dash: true, sfx: 'dash',
+    ready: P({ arx: -0.6, ary: -0.3, arz: -0.15, alx: -0.9, aly: 0.5, bry: -0.5, brx: 0.22, ll: -0.3, lr: 0.35, tool: level(-0.6), bpy: -0.13 }),
+    hit: P({ arx: -1.55, ary: 0.05, arz: -0.1, alx: -1.3, aly: 0.25, bry: 0.3, brx: 0.42, ll: -0.9, lr: 0.65, tool: level(-1.55), bpy: -0.12 }) },
+
+  // Maverick: moves. Finishers (tap, tap, hold): a long wind-up you can read, a big hit, a long follow-through.
+  // Axe and sword: jump, both hands overhead, and slam the ground. A shockwave knocks back everything around.
+  slam: { w: 0.3, s: 0.09, r: 0.5, dmg: 1.9, arc: Math.PI, reach: 1, knock: 2.6, stagger: 0.6, step: 0.6, crit: true, cancel: 0.55, trail: true, big: true, slam: true, sfx: 'heavy',
+    ready: P({ arx: -3.05, ary: 0.1, arz: -0.05, alx: -2.95, aly: -0.45, alz: 0.1, bry: -0.1, brx: -0.3, ll: -0.55, lr: -0.35, tool: 1.45, bpy: 0.16 }),
+    hit: P({ arx: -0.4, ary: 0.1, arz: -0.05, alx: -0.45, aly: -0.4, alz: 0.1, bry: 0.05, brx: 0.62, ll: -0.95, lr: 0.6, tool: 2.55, bpy: -0.24 }) },
+  // Spear: coil far back, then a long thrust that goes through everything in a line.
+  pierce: { w: 0.3, s: 0.1, r: 0.46, dmg: 2.0, arc: 0.3, reach: 2.1, knock: 1.8, stagger: 0.5, step: 0.9, crit: true, cancel: 0.55, trail: true, big: true, pierce: true, sfx: 'pierce',
+    ready: P({ arx: -0.4, ary: -0.55, arz: -0.15, alx: -1.0, aly: 0.65, bry: -0.85, brx: -0.12, ll: 0.3, lr: -0.45, tool: level(-0.4), bpy: -0.08 }),
+    hit: P({ arx: -1.55, ary: 0.0, arz: -0.1, alx: -1.45, aly: 0.15, bry: 0.55, brx: 0.36, ll: -0.95, lr: 0.65, tool: level(-1.55), bpy: -0.13 }) },
+  // Fists: crouch low, then a rising uppercut that pops the target into the air.
+  uppercut: { w: 0.24, s: 0.1, r: 0.44, dmg: 2.2, arc: 0.8, reach: 1.25, knock: 1.0, stagger: 0.6, step: 1.3, single: true, crit: true, cancel: 0.55, big: true, lift: 1, upper: true, sfx: 'uppercut',
+    ready: P({ arx: -0.25, arz: -0.25, alx: -1.25, aly: 0.2, alz: 0.2, bry: -0.55, brx: 0.3, ll: -0.55, lr: 0.45, bpy: -0.17 }),
+    hit: P({ arx: -2.95, ary: 0.2, arz: -0.05, alx: -0.7, alz: 0.3, bry: 0.45, brx: -0.18, ll: -0.15, lr: 0.1, bpy: 0.1 }) },
 };
 for (const [k, m] of Object.entries(MOVES)) m.name = k;
 const CHARGE_POSE = { tool: MOVES.spin.ready, fist: MOVES.spinFist.ready };
 
 // How each weapon fights. Damage and reach come from game.weapon (game.js).
 const STYLES = {
-  fist: { combo: ['jabL', 'jabR', 'push'], spin: 'spinFist', pace: 0.9, trail: null, metal: false },
-  axe: { combo: ['slash', 'backslash', 'overhead'], spin: 'spin', pace: 1, trail: [-0.05, 0.5], color: '#ffe2a8', metal: false },
-  ironsword: { combo: ['slash', 'backslash', 'overhead'], spin: 'spin', pace: 1.06, trail: [0.12, 1.0], color: '#e2f2ff', metal: true },
-  spear: { combo: ['thrust', 'thrust2', 'sweep'], spin: 'spin', pace: 1, trail: [0.9, 1.3], color: '#fff0c8', metal: false },
+// Maverick: moves. dash: the dash strike; fin: the tap-tap-hold finisher.
+  fist: { combo: ['jabL', 'jabR', 'push'], spin: 'spinFist', dash: 'dashJab', fin: 'uppercut', pace: 0.9, trail: null, metal: false },
+  axe: { combo: ['slash', 'backslash', 'overhead'], spin: 'spin', dash: 'dashCut', fin: 'slam', pace: 1, trail: [-0.05, 0.5], color: '#ffe2a8', metal: false },
+  ironsword: { combo: ['slash', 'backslash', 'overhead'], spin: 'spin', dash: 'dashCut', fin: 'slam', pace: 1.06, trail: [0.12, 1.0], color: '#e2f2ff', metal: true },
+  spear: { combo: ['thrust', 'thrust2', 'sweep'], spin: 'spin', dash: 'dashThrust', fin: 'pierce', pace: 1, trail: [0.9, 1.3], color: '#fff0c8', metal: false },
 };
 
 // ---------- easing ----------
@@ -113,7 +152,7 @@ class Particles {
     const white = new THREE.Color(1, 1, 1);
     this.zero = new THREE.Matrix4().makeScale(0, 0, 0);
     for (let i = 0; i < n; i++) {
-      this.p.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, life: 0, size: 1, grow: 0, grav: 0, drag: 0, rx: 0, ry: 0, wx: 0, wy: 0 });
+      this.p.push({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, age: 0, life: 0, size: 1, grow: 0, grav: 0, drag: 0, rx: 0, ry: 0, wx: 0, wy: 0, yaw: 0 });
       this.mesh.setMatrixAt(i, this.zero);
       this.mesh.setColorAt(i, white);
     }
@@ -128,6 +167,7 @@ class Particles {
     q.rx = Math.random() * TAU; q.ry = Math.random() * TAU; q.wx = (Math.random() - 0.5) * 18; q.wy = (Math.random() - 0.5) * 18;
     this.mesh.setColorAt(i, color);
     this.mesh.instanceColor.needsUpdate = true;
+    return q;   // Maverick: moves (streaks set q.yaw)
   }
   update(dt) {
     if (this.live <= 0) return;
@@ -144,6 +184,7 @@ class Particles {
       const s = q.size * (1 + q.grow * k) * (k > 0.6 ? 1 - (k - 0.6) / 0.4 : 1);
       d.position.set(q.x, q.y, q.z);
       if (this.spinning) { q.rx += q.wx * dt; q.ry += q.wy * dt; d.rotation.set(q.rx, q.ry, 0); }
+      else if (this.oriented) d.rotation.set(0, q.yaw, 0);   // Maverick: moves (speed streaks point along the lunge)
       d.scale.setScalar(Math.max(0.001, s));
       d.updateMatrix();
       this.mesh.setMatrixAt(i, d.matrix);
@@ -221,6 +262,13 @@ export class Combat {
     this.dodgeT = -1; this.dodgeCool = 0; this.dodgeBuf = 0; this.lastRoll = -9; this.ddx = 0; this.ddz = 0; this.rollSign = 1; this.dustT = 0;
     // movement wish from the input (world space), for the dodge direction
     this.wx = 0; this.wz = 0;
+    // Maverick: moves. sprint (sprintOn: the SPRINT toggle; sprintW eases 0..1), roll length, dash strike,
+    // the finisher fork (the third swing waits at the top of its wind-up while ATTACK is held) and the fade
+    this.sprintOn = false; this.sprinting = false; this.sprintW = 0; this.tired = false; this.stillT = 0; this.sdustT = 0;
+    this.rollTime = DODGE_TIME; this.rollV = DODGE_V; this.sprintRoll = false; this.rollEnd = -9; this.dashBuf = false; this.streakT = 0;
+    this.fork = false; this.holdUsed = false;
+    this.fadeT = 0; this.fadeW = 0;
+    this.sprintBtn = document.getElementById('btn-sprint');
     // lock-on
     this.target = null; this.manualT = 0;
     // poses
@@ -228,7 +276,7 @@ export class Combat {
     this.poseW = 0; this.fromW = 0; this.posed = false;
     // a short log for tests: what happened in the fight
     this.log = [];
-    this.stats = { swings: 0, hits: 0, dmg: 0, crits: 0, dodges: 0, dodged: 0, bitten: 0, kills: 0 };
+    this.stats = { swings: 0, hits: 0, dmg: 0, crits: 0, dodges: 0, dodged: 0, bitten: 0, kills: 0, dashes: 0, finishers: 0, sprintSecs: 0 };
 
     // reused objects
     this._m = new THREE.Matrix4(); this._a = new THREE.Vector3(); this._b = new THREE.Vector3();
@@ -243,8 +291,21 @@ export class Combat {
     // effects (made once)
     this.leaves = new Particles(scene, new THREE.PlaneGeometry(0.17, 0.1), new THREE.MeshLambertMaterial({ side: THREE.DoubleSide }), 48, true);
     this.sparks = new Particles(scene, new THREE.OctahedronGeometry(0.05), new THREE.MeshBasicMaterial({ toneMapped: false }), 28, true);
-    this.dust = new Particles(scene, new THREE.SphereGeometry(0.2, 7, 5), new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.55, depthWrite: false }), 18, false);
+    this.dust = new Particles(scene, new THREE.SphereGeometry(0.2, 7, 5), new THREE.MeshLambertMaterial({ transparent: true, opacity: 0.68, depthWrite: false }), 30, false);   // Maverick: moves (more for the sprint trail)
     this.trail = new Trail(scene);
+    // Maverick: moves. Speed streaks (thin bright lines along a lunge or a thrust) and shockwave rings, made once.
+    this.streaks = new Particles(scene, new THREE.BoxGeometry(0.035, 0.035, 0.9),
+      new THREE.MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false }), 16, false);
+    this.streaks.oriented = true;
+    this.COL.sdust = ['#a88f68', '#9a8260', '#b49d78'].map((c) => new THREE.Color(c));   // sprint dust: a shade darker than roll dust
+    this.COL.streak = [new THREE.Color('#fff4dc'), new THREE.Color('#ffe2a8')];
+    this.shocks = [];
+    for (let k = 0; k < 3; k++) {
+      const s = new THREE.Mesh(new THREE.RingGeometry(0.86, 1, 48).rotateX(-HALF_PI),
+        new THREE.MeshBasicMaterial({ color: '#fff1d0', transparent: true, opacity: 0, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+      s.renderOrder = 4; s.visible = false; scene.add(s);
+      this.shocks.push({ mesh: s, t: 0, life: 0, r: 1 });
+    }
     // the lock-on ring under the target
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.78, 36).rotateX(-HALF_PI),
       new THREE.MeshBasicMaterial({ color: '#ff6b4a', transparent: true, opacity: 0.85, depthWrite: false, toneMapped: false }));
@@ -269,8 +330,8 @@ export class Combat {
 
   // ---------- input ----------
   press() {
-    this.holding = true; this.holdT = 0;
-    if (this.dodgeT >= 0) { this.buffer = BUFFER; return; }
+    this.holding = true; this.holdT = 0; this.holdUsed = false;
+    if (this.dodgeT >= 0) { this.dashBuf = true; return; }   // Maverick: moves (a dash strike out of the roll)
     // no creature close and a tree or rock to work on: ATTACK chops, as before
     const g = this.game, wpn = g.weapon;
     const t = g.target;
@@ -278,8 +339,19 @@ export class Combat {
       const d = g.describe(t);
       if (d && d.ok) { this.holding = false; g.act(); return; }
     }
+    if (!this.move && !this.charging && this.time - this.rollEnd < DASH_WINDOW) { this.startDash(); return; }   // Maverick: moves
     if (this.move || this.charging) { this.buffer = BUFFER; return; }
     this.startNext();
+  }
+  // Maverick: moves. The SPRINT button: tap to turn sprint on or off (it also turns off when you stop).
+  toggleSprint(on = !this.sprintOn) {
+    if (on && this.tired) { this.number('Too tired to sprint', this.player.pos.x, this.player.pos.y + 2.1, this.player.pos.z, 'info'); return; }
+    this.setSprint(on);
+    this.audio.sfx('ui');
+  }
+  setSprint(on) {
+    this.sprintOn = on; this.stillT = 0; this.sprintUsed = false;
+    if (this.sprintBtn) { this.sprintBtn.classList.toggle('on', on); this.sprintBtn.setAttribute('aria-pressed', String(on)); }
   }
   release() {
     if (!this.holding) return;
@@ -348,17 +420,35 @@ export class Combat {
     this.nextStep = i >= st.combo.length - 1 ? 0 : i + 1;
     this.linkT = 0; this.buffer = 0;
     this.startMove(MOVES[st.combo[i]], false, i);
+    // Maverick: moves. The third swing started with ATTACK still held: it may turn into the finisher.
+    this.fork = i === st.combo.length - 1 && this.holding && !this.holdUsed;
   }
-  startMove(m, heavy, step = -1) {
+  // Maverick: moves. Tap, tap, hold: the weapon's finisher, from wherever the third swing's wind-up got to.
+  startFinisher() {
+    this.fork = false; this.holdUsed = true; this.nextStep = 0; this.linkT = 0; this.buffer = 0;
+    this.startMove(MOVES[this.style.fin], false, 2);
+    this.stats.finishers++;
+    this.audio.sfx('charge');
+  }
+  // Maverick: moves. ATTACK during or right after a roll: a lunging strike. It opens the combo (the next tap is swing two).
+  startDash() {
+    this.dashBuf = false; this.buffer = 0; this.linkT = 0;
+    this.startMove(MOVES[this.style.dash], false, 0, 4.5);
+    this.nextStep = 1;
+    this.stats.dashes++;
+    const pl = this.player;
+    for (let k = 0; k < 3; k++) this.puffDust(pl.pos.x, pl.pos.y, pl.pos.z, 0.8);
+  }
+  startMove(m, heavy, step = -1, aimRange = 3) {
     this.move = m; this.mt = 0; this.pmt = 0; this.hitDone = false; this.swung = false;
     this.pace = this.style.pace;
     if (!heavy) this.power = 1;
-    this.step = step;
+    this.step = step; this.fork = false; this.fadeT = 0;   // Maverick: moves
     if (this.poseW > 0.01) { this.from.set(this.cur); this.fromW = this.poseW; }
     else { this.from.set(m.ready); this.fromW = 0; }
     // aim: the target if it is close enough, else where you are pushing the stick, else straight ahead
     const pl = this.player, t = this.target;
-    if (t && Math.hypot(t.x - pl.pos.x, t.z - pl.pos.z) < this.game.weapon.reach + 3) this.aim = Math.atan2(t.x - pl.pos.x, t.z - pl.pos.z);
+    if (t && Math.hypot(t.x - pl.pos.x, t.z - pl.pos.z) < this.game.weapon.reach + aimRange) this.aim = Math.atan2(t.x - pl.pos.x, t.z - pl.pos.z);
     else if (Math.hypot(this.wx, this.wz) > 0.25) this.aim = Math.atan2(this.wx, this.wz);
     else this.aim = pl.facing;
     this.trail.clear();
@@ -369,15 +459,28 @@ export class Combat {
     const pl = this.player;
     if (this.move) this.note({ kind: 'cancel', move: this.move.name, at: Math.round(this.mt * 1000) / 1000 });
     this.move = null; this.charging = false; this.chargeRing.visible = false; this.holding = false;
+    this.fork = false; this.dashBuf = false; this.fadeT = 0;   // Maverick: moves
+    // Maverick: moves. Out of a sprint the roll is longer and carries your speed (always forward).
+    this.sprintRoll = this.sprintW > 0.5;
+    this.rollTime = this.sprintRoll ? SROLL_TIME : DODGE_TIME; this.rollV = this.sprintRoll ? SROLL_V : DODGE_V;
     const l = Math.hypot(this.wx, this.wz);
     if (l > 0.25) { this.ddx = this.wx / l; this.ddz = this.wz / l; this.rollSign = 1; this.aim = Math.atan2(this.ddx, this.ddz); }
+    else if (this.sprintRoll) { this.ddx = Math.sin(pl.facing); this.ddz = Math.cos(pl.facing); this.rollSign = 1; this.aim = pl.facing; }
     else { this.ddx = -Math.sin(pl.facing); this.ddz = -Math.cos(pl.facing); this.rollSign = -1; this.aim = pl.facing; }
     this.dodgeT = 0; this.dustT = 0; this.lastRoll = this.time;
-    pl.invuln = IFRAMES;
+    pl.invuln = this.sprintRoll ? SROLL_IFRAMES : IFRAMES;
     this.stats.dodges++;
     this.audio.sfx('whoosh');
     for (let k = 0; k < 4; k++) this.puffDust(pl.pos.x, pl.pos.y, pl.pos.z, 1);
-    this.note({ kind: 'dodge', back: this.rollSign < 0 });
+    this.note({ kind: 'dodge', back: this.rollSign < 0, sprint: this.sprintRoll });
+  }
+  // Maverick: moves. Sprint cuts a swing's recovery short: the pose fades out quickly instead of snapping.
+  cancelToMove() {
+    const m = this.move;
+    this.note({ kind: 'cancel', move: m.name, at: Math.round(this.mt * 1000) / 1000, into: 'sprint' });
+    this.from.set(this.cur); this.fadeW = this.poseW; this.fadeT = FADE;
+    this.move = null; this.fork = false;
+    this.linkT = this.nextStep === 0 ? 0 : LINK;
   }
 
   // ---------- each frame (before player.update) ----------
@@ -398,6 +501,7 @@ export class Combat {
       if (this.busy) { this.move = null; this.charging = false; this.dodgeT = -1; this.chargeRing.visible = false; }
       this.holding = false; this.buffer = 0;
       this.ring.visible = false; this.bar.visible = false;
+      this.sprinting = false; this.sprintW = 0; ctl.sprint = 0; this.fork = false; this.dashBuf = false;   // Maverick: moves
       return gdt;
     }
     pl.invuln = Math.max(0, (pl.invuln || 0) - gdt);
@@ -411,7 +515,9 @@ export class Combat {
     if (this.holding) {
       this.holdT += dt;
       const m = this.move;
-      if (!this.charging && this.dodgeT < 0 && this.holdT >= HOLD && (!m || this.mt >= (m.w + m.s) * this.pace)) {
+      // (Maverick: moves. Not while a held third press waits to chain: that one becomes the finisher.)
+      const toFin = this.buffer > 0 && this.nextStep === this.style.combo.length - 1;
+      if (!this.charging && !this.holdUsed && !this.fork && !toFin && this.dodgeT < 0 && this.holdT >= HOLD && (!m || this.mt >= (m.w + m.s) * this.pace)) {
         this.charging = true; this.charge = 0; this.chargeT = 0; this.charged = false;
         if (this.poseW > 0.01) { this.from.set(this.cur); this.fromW = this.poseW; } else { this.fromW = 0; }
         this.move = null; this.buffer = 0; this.nextStep = 0;
@@ -427,11 +533,21 @@ export class Combat {
       if (this.target) ctl.face = Math.atan2(this.target.x - pl.pos.x, this.target.z - pl.pos.z);
     }
 
+    // Maverick: moves. Tap, tap, hold: the third swing waits at the top of its wind-up while ATTACK is
+    // held; held long enough, it becomes the finisher; let go early and it carries on as the normal third hit.
+    if (this.fork && this.move) {
+      if (!this.holding) this.fork = false;
+      else if (this.holdT >= FIN_HOLD) this.startFinisher();
+    }
+    // Maverick: moves. Sprint: on while SPRINT is toggled (or Shift held) and the stick is pushed well over.
+    this.updateSprint(dt, gdt, input);
+
     // the current swing
     const m = this.move;
     if (m) {
       const pace = this.pace, w = m.w * pace, s = m.s * pace, r = m.r * pace;
       this.pmt = this.mt; this.mt += gdt;
+      if (this.fork && this.mt > w * 0.85) this.mt = w * 0.85;   // Maverick: moves (waiting to see: tap or hold?)
       const t = this.mt;
       // keep turning toward the target through the wind-up and strike
       const tg = this.target;
@@ -444,10 +560,13 @@ export class Combat {
         if (tg) { const d = Math.hypot(tg.x - pl.pos.x, tg.z - pl.pos.z) - (tg.type === 'thornmaw' ? 0.55 : 0.3); room = d > 0.75; }
         if (room) { const v = m.step * 2 / (w + s) * (1 - t / (w + s)); ctl.px = Math.sin(this.aim) * v; ctl.pz = Math.cos(this.aim) * v; }
       }
-      if (!this.swung && t >= w) { this.swung = true; this.audio.sfx(m.spin ? 'heavy' : 'swing'); }
+      if (!this.swung && t >= w) { this.swung = true; this.audio.sfx(m.sfx || (m.spin ? 'heavy' : 'swing')); }
       if (!this.hitDone && t >= w + s * (m.spin ? 0.5 : 0.35)) { this.hitDone = true; this.resolve(m); }
+      // Maverick: moves. Lunge streaks behind you during a dash strike
+      if (m.dash && t < w + s) { this.streakT -= gdt; if (this.streakT <= 0) { this.streakT = 0.025; this.streak(pl.pos.x, pl.pos.y + 0.55 + Math.random() * 0.7, pl.pos.z, this.aim, -0.35, 0.22); } }
       // chain: a buffered tap cancels the late recovery into the next swing
-      if (this.buffer > 0 && !this.holdingCharge() && t >= w + s + r * m.cancel) this.startNext();
+      // (Maverick: moves. A held press that would start the third swing still chains: it may become the finisher.)
+      if (this.buffer > 0 && (!this.holdingCharge() || this.nextStep === this.style.combo.length - 1) && t >= w + s + r * m.cancel) this.startNext();
       else if (t >= w + s + r) {
         this.move = null;
         if (this.buffer > 0) this.startNext();
@@ -462,19 +581,52 @@ export class Combat {
     }
     if (this.dodgeT >= 0) {
       this.dodgeT += gdt;
-      const k = this.dodgeT / DODGE_TIME;
-      if (k >= 1) {
-        this.dodgeT = -1; this.dodgeCool = DODGE_COOL;
+      const k = this.dodgeT / this.rollTime;
+      // Maverick: moves. ATTACK pressed during the roll: the dash strike comes out of it (from halfway)
+      if (this.dashBuf && k >= DASH_AT) {
+        this.dodgeT = -1; this.dodgeCool = DODGE_COOL; this.rollEnd = this.time;
+        this.startDash();
+      } else if (k >= 1) {
+        this.dodgeT = -1; this.dodgeCool = DODGE_COOL; this.rollEnd = this.time;
         if (this.buffer > 0) this.startNext();   // attack straight out of the roll
       } else {
-        const v = DODGE_V * Math.cos(k * HALF_PI);
+        // a sprinting roll keeps most of its speed (1 - 0.6 k^3), so it flows out of the sprint and back in
+        const v = this.sprintRoll ? this.rollV * (1 - 0.6 * k * k * k) : this.rollV * Math.cos(k * HALF_PI);
         ctl.dash = true; ctl.dx = this.ddx * v; ctl.dz = this.ddz * v;
         ctl.face = this.aim;
         this.dustT -= gdt;
-        if (this.dustT <= 0 && k < 0.8) { this.dustT = 0.07; this.puffDust(pl.pos.x, pl.pos.y, pl.pos.z, 0.6); }
+        if (this.dustT <= 0 && k < 0.8) { this.dustT = this.sprintRoll ? 0.05 : 0.07; this.puffDust(pl.pos.x, pl.pos.y, pl.pos.z, 0.6); }
       }
     }
     return gdt;
+  }
+
+  // Maverick: moves. Sprint each frame: the toggle or Shift, a strong push on the stick, enough energy, and not
+  // mid-swing or mid-roll. It cuts any swing's recovery short. It costs energy and stops when you are tired.
+  updateSprint(dt, gdt, input) {
+    const pl = this.player, ctl = pl.ctl, st = this.game.stats;
+    const mag = Math.min(1, Math.hypot(input.move.x, input.move.y));
+    // (tapped on while standing, it waits a few seconds for you to set off)
+    if (mag < 0.15) { this.stillT += dt; if (this.sprintOn && this.stillT > (this.sprintUsed ? SPRINT_IDLE : 4)) this.setSprint(false); } else this.stillT = 0;
+    if (this.tired && st.energy >= SPRINT_OK) this.tired = false;
+    const want = (this.sprintOn || !!input.sprint) && mag >= SPRINT_STICK;
+    if (want && !this.tired && st.energy < SPRINT_MIN) {
+      this.tired = true; this.setSprint(false);
+      this.number('Too tired to sprint', pl.pos.x, pl.pos.y + 2.1, pl.pos.z, 'info');
+    }
+    const ok = want && !this.tired;
+    const m = this.move;
+    if (ok && m && !this.fork && this.buffer <= 0 && !this.holding && this.mt >= (m.w + m.s) * this.pace) this.cancelToMove();
+    const was = this.sprinting;
+    this.sprinting = ok && !this.move && !this.charging && this.dodgeT < 0;
+    if (this.sprinting) {
+      st.energy = Math.max(0, st.energy - gdt * SPRINT_DRAIN);
+      this.stats.sprintSecs += gdt; if (this.sprintOn) this.sprintUsed = true;
+      if (!was && this.sprintW < 0.3) { this.audio.sfx('sprint'); for (let k = 0; k < 2; k++) this.puffDust(pl.pos.x, pl.pos.y, pl.pos.z, 0.7); }
+    }
+    if (this.dodgeT < 0) this.sprintW += ((this.sprinting ? 1 : 0) - this.sprintW) * (1 - Math.exp(-gdt * (this.sprinting ? 5 : 8)));   // held through a roll
+    if (this.sprintW < 0.002) this.sprintW = 0;
+    ctl.sprint = this.dodgeT >= 0 ? 0 : this.sprintW;
   }
   holdingCharge() { return this.holding && this.holdT >= HOLD * 0.8; }
 
@@ -484,6 +636,34 @@ export class Combat {
     const fx = Math.sin(this.aim), fz = Math.cos(this.aim), cosArc = Math.cos(m.arc);
     const reach = wpn.reach * m.reach;
     let single = null, sd = Infinity, any = false;
+    // Maverick: moves. The slam hits everything around the impact point (a little ahead of you), pushing it
+    // outward from there; the charged thrust hits everything along its line.
+    if (m.slam) {
+      const cx = pl.pos.x + fx * 0.9, cz = pl.pos.z + fz * 0.9;
+      this.slamFx(cx, pl.pos.y, cz);
+      for (const c of this.creatures.list) {
+        if (c.dead) continue;
+        const rad = c.type === 'thornmaw' ? 0.55 : 0.3;
+        const dx = c.x - cx, dz = c.z - cz, d = Math.hypot(dx, dz) || 0.01;
+        if (d - rad > SLAM_R) continue;
+        this.damage(c, m, wpn, st, d < 1.6 ? 1 : 0.75, dx / d, dz / d); any = true;
+      }
+      if (!any) this.note({ kind: 'miss', move: m.name });
+      return;
+    }
+    if (m.pierce) {
+      this.pierceFx(pl.pos.x, pl.pos.y, pl.pos.z, fx, fz, reach);
+      for (const c of this.creatures.list) {
+        if (c.dead) continue;
+        const rad = c.type === 'thornmaw' ? 0.55 : 0.3;
+        const dx = c.x - pl.pos.x, dz = c.z - pl.pos.z;
+        const along = dx * fx + dz * fz, side = Math.abs(dx * fz - dz * fx);
+        if (along < -0.3 || along - rad > reach || side - rad > PIERCE_W) continue;
+        this.damage(c, m, wpn, st); any = true;
+      }
+      if (!any) this.note({ kind: 'miss', move: m.name });
+      return;
+    }
     for (const c of this.creatures.list) {
       if (c.dead) continue;
       const rad = c.type === 'thornmaw' ? 0.55 : 0.3;
@@ -492,19 +672,23 @@ export class Combat {
       const dot = (dx * fx + dz * fz) / d;
       if (dot < cosArc && d > 0.8) continue;
       if (m.single) { const s = d * (2 - dot); if (s < sd) { sd = s; single = c; } continue; }
-      this.damage(c, m, wpn, st, d); any = true;
+      this.damage(c, m, wpn, st); any = true;
     }
-    if (single) { this.damage(single, m, wpn, st, sd); any = true; }
+    if (single) { this.damage(single, m, wpn, st); any = true; }
     if (!any) this.note({ kind: 'miss', move: m.name });
   }
-  damage(c, m, wpn, st) {
+  // (Maverick: moves. mult scales the damage; kx/kz, if given, is the knockback direction)
+  damage(c, m, wpn, st, mult = 1, kx = 0, kz = 0) {
     const pl = this.player, g = this.game;
     const punish = c.whiff > 0;                       // it missed its lunge: it takes more
     const crit = !!m.crit || punish;
-    const base = (wpn.dmg + (g.level - 1)) * m.dmg * this.power * (punish ? 1.15 : 1);
+    const base = (wpn.dmg + (g.level - 1)) * m.dmg * this.power * mult * (punish ? 1.15 : 1);
     const dmg = Math.max(1, Math.round(base * (0.94 + Math.random() * 0.12)));
-    const dx = c.x - pl.pos.x, dz = c.z - pl.pos.z, d = Math.hypot(dx, dz) || 1;
-    const res = this.creatures.strike(c, dmg, dx / d, dz / d, m.knock * (c.type === 'puffhop' ? 1.4 : 1), m.stagger || 0);
+    let dx = c.x - pl.pos.x, dz = c.z - pl.pos.z, d = Math.hypot(dx, dz) || 1;
+    if (kx || kz) { dx = kx; dz = kz; d = 1; }
+    const res = this.creatures.strike(c, dmg, dx / d, dz / d, m.knock * (c.type === 'puffhop' ? 1.4 : 1), m.stagger || 0, m.lift || 0);
+    if (m.upper) this.upperFx(c);   // Maverick: moves
+    if (m.hitSfx) this.audio.sfx(m.hitSfx);
     // hit feel: a tiny freeze, a shake, a flash (strike sets it), a number, a thud and a burst
     this.stop = Math.max(this.stop, crit || m.big ? STOP_BIG : STOP);
     this.shake = Math.min(0.6, this.shake + (m.big ? 0.32 : crit ? 0.22 : 0.13));
@@ -531,7 +715,7 @@ export class Combat {
     this.shake = Math.min(0.6, this.shake + 0.28);
     this.stop = Math.max(this.stop, 0.05);
     // a bite knocks you out of your swing (not out of a roll)
-    if (this.move || this.charging) { this.move = null; this.charging = false; this.chargeRing.visible = false; this.holding = false; this.nextStep = 0; this.buffer = 0; }
+    if (this.move || this.charging) { this.move = null; this.charging = false; this.chargeRing.visible = false; this.holding = false; this.nextStep = 0; this.buffer = 0; this.fork = false; }
   }
   // a lunge ended without biting: if you rolled just now, that was a dodge
   lungeMissed(c) { if (c.dodged || this.time - this.lastRoll < 0.8) this.dodged(c); }
@@ -579,6 +763,55 @@ export class Combat {
   puffDust(x, y, z, size) {
     const a = Math.random() * TAU, s = 0.6 + Math.random() * 0.8;
     this.dust.emit(x + Math.cos(a) * 0.2, y + 0.12, z + Math.sin(a) * 0.2, Math.cos(a) * s, 0.5 + Math.random() * 0.4, Math.sin(a) * s, 0.5 + Math.random() * 0.25, 0.7 * size, this.COL.dust[Math.floor(Math.random() * 3)], -0.6, 3, 1.4);
+  }
+  // Maverick: moves. A thin bright streak (pooled) pointing along yaw, drifting back (back < 0) from x, z.
+  streak(x, y, z, yaw, back, life) {
+    const sx = Math.sin(yaw), sz = Math.cos(yaw), side = (Math.random() - 0.5) * 0.6;
+    const q = this.streaks.emit(x + sz * side + sx * back, y, z - sx * side + sz * back, -sx * 2.5, 0, -sz * 2.5, life, 0.8 + Math.random() * 0.5,
+      this.COL.streak[Math.random() < 0.5 ? 0 : 1], 0, 4, 0.3);
+    q.yaw = yaw;
+  }
+  // a shockwave ring on the ground that grows to radius r over life seconds (3 pooled)
+  shock(x, y, z, r, life, color) {
+    let best = null;
+    for (const s of this.shocks) if (s.life <= 0) { best = s; break; }
+    if (!best) { best = this.shocks[0]; for (const s of this.shocks) if (s.t / s.life > best.t / best.life) best = s; }   // reuse the oldest
+    best.t = 0; best.life = life; best.r = r;
+    best.mesh.position.set(x, y + 0.07, z); best.mesh.material.color.set(color); best.mesh.visible = true;
+  }
+  // the slam lands: a big ring and a quick inner one, a ring of dust, sparks and leaves, a boom and a big shake
+  slamFx(x, y, z) {
+    this.shock(x, y, z, SLAM_R, 0.42, '#fff1d0');
+    this.shock(x, y, z, SLAM_R * 0.55, 0.26, '#ffc06a');
+    for (let k = 0; k < 10; k++) {
+      const a = k / 10 * TAU, s = 3.2 + Math.random();
+      this.dust.emit(x + Math.cos(a) * 0.5, y + 0.1, z + Math.sin(a) * 0.5, Math.cos(a) * s, 0.6 + Math.random() * 0.5, Math.sin(a) * s,
+        0.55 + Math.random() * 0.2, 0.9, this.COL.dust[k % 3], -0.4, 3.2, 1.6);
+    }
+    this.burst(this.sparks, x, y + 0.15, z, 8, this.COL.spark, 4, 0.9, 0.6);
+    this.burst(this.leaves, x, y + 0.2, z, 6, this.COL.leaf, 3, 1.1, 0.8);
+    this.audio.sfx('slam');
+    this.shake = Math.min(0.75, this.shake + 0.45);
+    this.stop = Math.max(this.stop, STOP_BIG);
+  }
+  // the charged thrust: streaks along its whole line and a burst of sparks at the far end
+  pierceFx(x, y, z, fx, fz, len) {
+    const yaw = Math.atan2(fx, fz);
+    for (let k = 0; k < 7; k++) {
+      const a = 0.4 + (len - 0.2) * (k / 6);
+      this.streak(x + fx * a, y + 0.95 + (Math.random() - 0.5) * 0.25, z + fz * a, yaw, 0, 0.18 + k * 0.012);
+    }
+    this.burst(this.sparks, x + fx * len, y + 1, z + fz * len, 5, this.COL.spark, 3.5, 0.4, 0.45, fx, fz);
+    this.shake = Math.min(0.6, this.shake + 0.2);
+  }
+  // the uppercut connects: sparks fly upward and a small ring at its feet
+  upperFx(c) {
+    const y = c.y + (c.type === 'thornmaw' ? 0.6 : 0.3);
+    for (let k = 0; k < 7; k++) {
+      const a = Math.random() * TAU;
+      this.sparks.emit(c.x, y, c.z, Math.cos(a) * 1.2, 5 + Math.random() * 2.5, Math.sin(a) * 1.2, 0.5 + Math.random() * 0.2, 1.1, this.COL.spark[k % 3], 6, 2.5);
+    }
+    this.shock(c.x, c.y, c.z, 1.3, 0.3, '#ffd27a');
   }
   // pop-up numbers in the floating-text layer (hud.js moves and fades them)
   number(text, x, y, z, cls) {
@@ -632,6 +865,13 @@ export class Combat {
       }
       if (inTrail) this.trail.mat.uniforms.uColor.value.set(m.spin ? '#ffd27a' : st.color);
       this.posed = true;
+    } else if (this.fadeT > 0) {
+      // Maverick: moves. A recovery cut short by sprint: ease the swing's pose out quickly
+      this.fadeT = Math.max(0, this.fadeT - dt);
+      this.cur.set(this.from);
+      this.poseW = this.fadeW * easeInOut(this.fadeT / FADE);
+      this.apply(pl, this.cur, this.poseW);
+      this.posed = true;
     } else if (this.posed || this.poseW > 0) {
       // back to the walk pose
       this.poseW = 0; this.posed = false;
@@ -676,7 +916,7 @@ export class Combat {
   }
   // the roll: the body turns a full circle around its middle, tucked up small
   poseRoll(pl) {
-    const k = clamp01(this.dodgeT / DODGE_TIME), e = easeInOut(k), tuck = Math.sin(k * Math.PI);
+    const k = clamp01(this.dodgeT / this.rollTime), e = easeInOut(k), tuck = Math.sin(k * Math.PI);   // Maverick: moves (rollTime)
     const th = TAU * e * this.rollSign, h = 0.62, c = h - 0.22 * tuck;
     pl.body.rotation.set(th, 0, 0);
     pl.body.position.set(0, c - h * Math.cos(th), -h * Math.sin(th));
@@ -700,7 +940,26 @@ export class Combat {
   // particles, the lock-on ring, the charge ring and the target's health bar
   fx(pl, dt) {
     const gdt = this.stop > 0 ? dt * 0.03 : this.slow > 0 ? dt * 0.35 : dt;
-    this.leaves.update(gdt); this.sparks.update(gdt); this.dust.update(gdt);
+    this.leaves.update(gdt); this.sparks.update(gdt); this.dust.update(gdt); this.streaks.update(gdt);
+    // Maverick: moves. Shockwave rings grow and fade; a sprint kicks up a trail of dust behind your feet.
+    for (const s of this.shocks) {
+      if (s.life <= 0) continue;
+      s.t += gdt;
+      const k = s.t / s.life;
+      if (k >= 1) { s.life = 0; s.mesh.visible = false; continue; }
+      s.mesh.scale.setScalar(Math.max(0.05, s.r * (0.2 + 0.8 * easeOut3(k))));
+      s.mesh.material.opacity = 0.9 * (1 - k * k);
+    }
+    if (this.sprintW > 0.6 && pl.sp > 7.6) {
+      this.sdustT -= gdt;
+      if (this.sdustT <= 0) {
+        this.sdustT = 0.055;   // (more often, bigger and darker, so it reads in daylight)
+        const bx = Math.sin(pl.facing), bz = Math.cos(pl.facing);
+        this.dust.emit(pl.pos.x - bx * 0.35 + (Math.random() - 0.5) * 0.25, pl.pos.y + 0.08, pl.pos.z - bz * 0.35 + (Math.random() - 0.5) * 0.25,
+          -bx * 1.2 + (Math.random() - 0.5) * 0.6, 0.35 + Math.random() * 0.3, -bz * 1.2 + (Math.random() - 0.5) * 0.6,
+          0.5 + Math.random() * 0.2, 0.85, this.COL.sdust[Math.floor(Math.random() * 3)], -0.5, 3, 1.7);
+      }
+    }
     const t = this.target;
     if (t && !t.dead) {
       const big = t.type === 'thornmaw';
