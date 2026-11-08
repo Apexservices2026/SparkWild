@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Sparkwild">
+<meta name="theme-color" content="#0e1512">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-512.png">
+<title>Sparkwild</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600&family=Nunito:wght@500;700&display=swap">
+<style>
+  /* Layout: full-screen game canvas; small frosted-glass HUD cards pinned to the corners. */
+  :root {
+    --ink: #fbf3e4;          /* warm cream text */
+    --ink-dim: #d8ccb6;
+    --glass: rgba(24, 30, 26, 0.58);
+    --glass-edge: rgba(255, 236, 200, 0.16);
+    --ember: #ffb35c;        /* lantern glow accent */
+    --night: #0e1512;
+    --font-display: 'Fredoka', 'Trebuchet MS', system-ui, sans-serif;
+    --font-body: 'Nunito', 'Segoe UI', system-ui, sans-serif;
+    --ticker-h: 32px;
+    --bar-h: 52px;           /* height of the status bar, kept exact by hud.js */
+    --ic: 22px;              /* size of the heart, food and water icons */
+    color-scheme: dark;
+  }
+  body.no-ticker, body.news-empty { --ticker-h: 0px; }   /* no messages: the news strip tucks away */
+  html, body { height: 100%; margin: 0; overflow: hidden; background: var(--night); color: var(--ink); font-family: var(--font-body); }
+  body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+  button { touch-action: manipulation; }
+  [hidden] { display: none !important; }
+  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  .card {
+    background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 14px;
+    backdrop-filter: blur(10px) saturate(1.2); -webkit-backdrop-filter: blur(10px) saturate(1.2);
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.25);
+  }
+  .hud-tr { position: fixed; top: calc(8px + var(--bar-h) + var(--ticker-h)); right: max(16px, env(safe-area-inset-right, 0px)); display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: calc(100vw - 32px); }
+
+  /* ---- status bar along the very top: hearts, food, water, warmth, energy, level, sky, settings ---- */
+  #statusbar { position: fixed; left: 0; right: 0; top: 0; z-index: 2; box-sizing: border-box; display: flex; flex-wrap: wrap; align-items: center; column-gap: 14px; row-gap: 4px;
+    padding: calc(4px + env(safe-area-inset-top, 0px)) max(10px, env(safe-area-inset-right, 0px)) 4px max(10px, env(safe-area-inset-left, 0px));
+    background: rgba(12, 17, 14, 0.8); border-bottom: 1px solid var(--glass-edge); }
+  .sb-vitals { display: flex; align-items: center; gap: 12px; }
+  .lv { position: relative; width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; }
+  .lv svg { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+  .lv circle { fill: rgba(0, 0, 0, 0.35); stroke-width: 3; }
+  .lv .lv-track { stroke: rgba(255, 236, 200, 0.18); }
+  .lv .lv-prog { fill: none; stroke: var(--ember); stroke-linecap: round; transition: stroke-dasharray 0.4s; }
+  .lv span { position: relative; font: 600 12px/1 var(--font-display); color: var(--ember); white-space: nowrap; }
+  .icons { display: flex; align-items: center; gap: 2px; border-radius: 8px; padding: 2px; }
+  .ic { position: relative; width: var(--ic); height: var(--ic); flex: 0 0 auto; }
+  .ic svg { display: block; width: var(--ic); height: var(--ic); }
+  .ic .full { position: absolute; left: 0; top: 0; height: 100%; width: 0; overflow: hidden; }
+  .ic.h .full { width: 50%; } .ic.f .full { width: 100%; }
+  .icons.low { background: rgba(229, 72, 77, 0.22); }
+  .icons.low .ic.f, .icons.low .ic.h { animation: lowpulse 0.9s ease-in-out infinite; }
+  @keyframes lowpulse { 50% { transform: scale(1.18); } }
+  .icons.hurt { animation: shake 0.45s ease-out; }
+  .icons.hurt .ic { animation: hurtflash 0.45s ease-out; }
+  @keyframes shake { 15% { transform: translateX(-4px); } 35% { transform: translateX(4px); } 55% { transform: translateX(-3px); } 75% { transform: translateX(2px); } }
+  @keyframes hurtflash { 0%, 40% { filter: brightness(1.8) drop-shadow(0 0 4px #ff4040); } }
+  .sb-meters { display: flex; align-items: center; gap: 12px; }
+  .meter { display: flex; align-items: center; gap: 4px; border-radius: 8px; padding: 2px 3px; }
+  .meter svg { display: block; width: 18px; height: 18px; }
+  .m-bar { width: 40px; height: 7px; border-radius: 4px; background: rgba(0, 0, 0, 0.45); box-shadow: inset 0 0 0 1px rgba(255, 236, 200, 0.18); overflow: hidden; }
+  .m-fill { display: block; height: 100%; width: 100%; border-radius: 4px; transform-origin: left center; transition: transform 0.3s; }
+  #sb-warmth .m-fill { background: #ff8a3a; } #sb-energy .m-fill { background: #a8d84e; }
+  .meter.low { background: rgba(229, 72, 77, 0.22); }
+  .meter.low svg { animation: lowpulse 0.9s ease-in-out infinite; }
+  .sb-sky { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+  .sb-sky .place { font: 600 14px/1 var(--font-display); color: var(--ink-dim); white-space: nowrap; }
+  .reading { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; white-space: nowrap; }
+  .reading svg { width: 20px; height: 20px; fill: none; stroke: var(--ember); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; display: block; }
+  .reading .clock { font-variant-numeric: tabular-nums; color: var(--ink-dim); font-weight: 500; }
+  .sb-btns { display: flex; gap: 6px; }
+  #btn-news { position: relative; }
+  #btn-news.unread::after { content: ''; position: absolute; right: 4px; top: 4px; width: 9px; height: 9px; border-radius: 50%; background: var(--ember); box-shadow: 0 0 0 2px rgba(12, 17, 14, 0.9); }
+  button { font: inherit; color: inherit; }
+  .icon-btn { width: 34px; height: 34px; border-radius: 10px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.06); cursor: pointer; display: grid; place-items: center; }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.14); }
+  .icon-btn svg { width: 18px; height: 18px; fill: none; stroke: var(--ink); stroke-width: 1.8; stroke-linecap: round; }
+  :focus-visible { outline: 2px solid var(--ember); outline-offset: 2px; }
+
+  #panel { width: 270px; max-width: 100%; padding: 14px; display: grid; gap: 12px; max-height: calc(100dvh - 24px - var(--bar-h) - var(--ticker-h) - env(safe-area-inset-bottom, 0px)); box-sizing: border-box; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; }
+  #panel h2 { margin: 0; font: 600 15px/1 var(--font-display); letter-spacing: 0.02em; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 14px; }
+  .stepper { display: flex; gap: 6px; }
+  .stepper button { width: 34px; height: 30px; border-radius: 8px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.07); cursor: pointer; font-weight: 700; }
+  .stepper button:hover { background: rgba(255, 255, 255, 0.16); }
+  .row input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--ember); }
+  .row select { background: rgba(0, 0, 0, 0.3); color: var(--ink); border: 1px solid var(--glass-edge); border-radius: 8px; padding: 4px 6px; font: inherit; font-size: 13px; }
+  .note { font-size: 12px; color: var(--ink-dim); line-height: 1.4; margin: 0; }
+
+  #hint { position: fixed; left: 50%; bottom: calc(130px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); padding: 9px 16px; font-size: 13px; text-align: center; width: max-content; max-width: calc(100vw - 32px); transition: opacity 1.2s; }
+  #hint.fade { opacity: 0; pointer-events: none; }
+
+  #toast { position: fixed; left: 0; right: 0; top: 22%; text-align: center; pointer-events: none; opacity: 0; display: flex; flex-direction: column; gap: 4px; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.55); }
+  #toast.show { animation: toast 4.2s ease forwards; }
+  .toast-sub { font: 600 13px/1 var(--font-display); letter-spacing: 0.2em; text-transform: uppercase; color: var(--ember); }
+  .toast-name { font: 600 clamp(28px, 6vw, 46px)/1.1 var(--font-display); }
+  @keyframes toast { 0% { opacity: 0; transform: translateY(8px); } 15%, 75% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+
+  #stick { position: fixed; left: 0; top: 0; width: 120px; height: 120px; border-radius: 50%; border: 2px solid rgba(255, 240, 210, 0.35); background: rgba(20, 26, 22, 0.25); pointer-events: none; }
+  #knob { position: absolute; left: 35px; top: 35px; width: 50px; height: 50px; border-radius: 50%; background: rgba(255, 236, 200, 0.55); transition: background-color 0.15s; }
+  #knob.run { background: rgba(255, 170, 70, 0.95); box-shadow: 0 0 0 3px rgba(255, 179, 92, 0.35); }
+
+  #loading { position: fixed; inset: 0; display: grid; place-items: center; background: var(--night); transition: opacity 1s; z-index: 5; }
+  #loading.done { opacity: 0; pointer-events: none; }
+  #loading.ready { background: rgba(8, 12, 10, 0.62); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+  #loading .title { font: 600 44px/1 var(--font-display); color: var(--ink); text-align: center; }
+  #loading .tagline { margin-top: 8px; color: var(--ink); opacity: 0.85; font-size: 15px; text-align: center; }
+  #loading .sub { margin-top: 10px; color: var(--ember); font-size: 14px; text-align: center; letter-spacing: 0.08em; }
+
+
+  /* news strip, directly under the status bar: messages scroll past like a ticker; tap it to hide */
+  #ticker { position: fixed; left: 0; right: 0; top: var(--bar-h); height: var(--ticker-h); box-sizing: border-box; padding: 0 max(6px, env(safe-area-inset-right, 0px)) 0 max(8px, env(safe-area-inset-left, 0px));
+    background: linear-gradient(90deg, rgba(74, 48, 20, 0.9), rgba(16, 20, 17, 0.84) 30%); border-bottom: 1px solid rgba(255, 179, 92, 0.45); overflow: hidden; z-index: 2; cursor: pointer; display: flex; align-items: center; gap: 8px; }
+  #ticker::after { content: ''; position: absolute; inset: 0; background: rgba(255, 179, 92, 0.4); opacity: 0; pointer-events: none; }
+  #ticker.fresh::after { animation: newsflash 1.8s ease-out; }
+  @keyframes newsflash { 0%, 25% { opacity: 1; } 100% { opacity: 0; } }
+  body.no-ticker #ticker, body.news-empty #ticker { display: none; }
+  .t-badge { flex: 0 0 auto; width: 24px; height: 24px; border-radius: 7px; background: var(--ember); display: grid; place-items: center; }
+  .t-badge svg { width: 16px; height: 16px; fill: none; stroke: #2a2018; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+  #ticker.fresh .t-badge svg { animation: ring 0.9s ease-in-out; }
+  @keyframes ring { 15% { transform: rotate(-18deg); } 35% { transform: rotate(16deg); } 55% { transform: rotate(-10deg); } 75% { transform: rotate(6deg); } }
+  .t-window { flex: 1; min-width: 0; overflow: hidden; height: 100%; display: flex; align-items: center; }
+  #ticker-track { display: inline-flex; gap: 56px; white-space: nowrap; padding-left: 100%; animation: tick var(--tick-time, 30s) linear infinite; font-size: 14px; font-weight: 700; color: #fff8ec; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); }
+  #ticker-track span b { color: var(--ember); font-weight: 700; margin-right: 6px; }
+  #ticker-close { flex: 0 0 auto; width: 26px; height: 24px; border-radius: 6px; border: 0; background: rgba(40, 46, 42, 0.95); color: var(--ink); font-size: 13px; line-height: 24px; padding: 0; }
+  @keyframes tick { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+  @media (prefers-reduced-motion: reduce) { #ticker-track { animation: none; padding-left: 4px; } #ticker.fresh::after, #ticker.fresh .t-badge svg, .icons.low .ic, .meter.low svg, .icons.hurt, .icons.hurt .ic { animation: none; } }
+
+  /* tips: one short tip at a time, near the bottom above the buttons (never in the middle) */
+  #coach { position: fixed; z-index: 2; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(150px + env(safe-area-inset-bottom, 0px)); box-sizing: border-box; width: max-content; max-width: min(280px, calc(100vw - 32px));
+    display: flex; align-items: flex-start; gap: 8px; padding: 9px 6px 10px 12px; border-color: rgba(255, 179, 92, 0.6); background: rgba(24, 30, 26, 0.86); pointer-events: none; animation: coachin 0.3s ease-out; }
+  @keyframes coachin { from { opacity: 0; transform: translateY(8px); } }
+  .c-body { display: grid; gap: 3px; font-size: 14px; font-weight: 700; line-height: 1.35; padding-top: 1px; }
+  .c-label { font: 600 12px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ember); }
+  #coach-text b { font-weight: 700; color: #2a2018; background: rgba(255, 210, 150, 0.95); border-radius: 5px; padding: 0 5px; white-space: nowrap; }
+  #coach-close { pointer-events: auto; flex: 0 0 auto; position: relative; width: 28px; height: 28px; border-radius: 8px; border: 0; background: rgba(255, 255, 255, 0.08); color: var(--ink); font-size: 14px; line-height: 28px; padding: 0; cursor: pointer; }
+  #coach-close::before { content: ''; position: absolute; inset: -8px; }
+  .c-arrow { position: absolute; bottom: -7px; left: var(--ax, 50%); width: 12px; height: 12px; margin-left: -6px; transform: rotate(45deg); background: rgba(24, 30, 26, 0.95); border-right: 1px solid rgba(255, 179, 92, 0.6); border-bottom: 1px solid rgba(255, 179, 92, 0.6); display: none; }
+  #coach.arrow .c-arrow { display: block; }
+  body:has(#panel:not([hidden])) #coach { display: none; }  /* the open settings panel comes first */
+  .act.coach-target { border-color: var(--ember); animation: coachring 1.2s ease-in-out infinite; }
+  @keyframes coachring { 50% { box-shadow: 0 0 0 6px rgba(255, 179, 92, 0.45); } }
+  .hud-tr:has(#panel:not([hidden])) #objective { display: none; }  /* the open settings panel takes the goal's place */
+  #btn-news { display: none; }
+  body.no-ticker #btn-news { display: grid; }
+  /* ---- survival HUD ---- */
+  .t-icon svg, .slot svg, .r-icon svg, .need svg { display: block; }
+  .ico { overflow: visible; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }   /* the hand-drawn icons (src/items.js) */
+  #objective { padding: 9px 12px; max-width: 290px; display: grid; gap: 3px; }
+  .o-label { font: 600 12px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ember); }
+  .o-text { font-size: 14px; font-weight: 700; line-height: 1.3; }
+  .o-prog { color: var(--ink-dim); font-weight: 500; }
+  #bottom { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; flex-direction: column; align-items: center; gap: 8px; max-width: calc(100vw - 340px); pointer-events: none; }
+  #prompt { padding: 7px 12px; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+  #prompt.dim { color: var(--ink-dim); font-weight: 500; }
+  kbd { font: 700 12px/1 var(--font-body); background: rgba(255, 236, 200, 0.9); color: #2a2018; border-radius: 5px; padding: 3px 6px; }
+  #hotbar { display: flex; gap: 6px; padding: 6px; pointer-events: auto; overflow-x: auto; max-width: 100%; box-sizing: border-box; scrollbar-width: none; }
+  #hotbar::-webkit-scrollbar { display: none; }
+  /* a soft fade at an edge that has more items past it */
+  #hotbar.more-right { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); mask-image: linear-gradient(90deg, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); }
+  #hotbar.more-left { -webkit-mask-image: linear-gradient(270deg, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); mask-image: linear-gradient(270deg, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); }
+  #hotbar.more-left.more-right { -webkit-mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.15), #000 34px, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); mask-image: linear-gradient(90deg, rgba(0, 0, 0, 0.15), #000 34px, #000 calc(100% - 34px), rgba(0, 0, 0, 0.15)); }
+  #hotbar .empty { font-size: 13px; color: var(--ink-dim); padding: 6px 8px; }
+  .slot { position: relative; width: 46px; height: 46px; flex: 0 0 auto; border-radius: 10px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.07); display: grid; place-items: center; cursor: default; padding: 0; }
+  .slot.usable { cursor: pointer; border-color: rgba(255, 196, 120, 0.5); }
+  .slot svg { width: 32px; height: 32px; }
+  .slot .count { position: absolute; right: 4px; bottom: 2px; font: 700 12px/1 var(--font-body); text-shadow: 0 1px 2px #000; font-variant-numeric: tabular-nums; }
+  .slot .use { position: absolute; top: -8px; left: 50%; transform: translateX(-50%); font-size: 12px; line-height: 1.1; font-weight: 700; background: var(--ember); color: #2a2018; border-radius: 4px; padding: 0 4px; white-space: nowrap; }
+  /* pick-up messages: at most 2, stacked just above the prompt and the item bar */
+  #toasts { display: flex; flex-direction: column; align-items: inherit; gap: 4px; pointer-events: none; }
+  #toasts:empty { display: none; }
+  .toast { display: flex; align-items: center; gap: 8px; background: var(--glass); border: 1px solid var(--glass-edge); border-radius: 10px; padding: 6px 10px; font-size: 13px; font-weight: 700; transition: opacity 0.6s, transform 0.6s; }
+  .toast.out { opacity: 0; transform: translateX(-12px); }
+  .t-icon svg { width: 22px; height: 22px; }
+  #banner { position: fixed; left: 0; right: 0; top: 26%; text-align: center; pointer-events: none; opacity: 0; display: flex; flex-direction: column; gap: 6px; text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6); }
+  #banner.show { animation: toast 3.6s ease forwards; }
+  .b-title { font: 600 clamp(30px, 6vw, 48px)/1 var(--font-display); color: var(--ember); }
+  .b-sub { font-size: 15px; font-weight: 700; }
+  #floats { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .float { position: absolute; left: 0; top: 0; font: 600 18px/1 var(--font-display); text-shadow: 0 2px 4px #000; margin: -9px 0 0 -12px; }
+  /* Maverick: combat. Damage numbers pop; a finisher's crit is bigger and orange. */
+  .float.dmg span { display: inline-block; font-size: 21px; color: #fff3d6; text-shadow: 0 2px 0 #3a1e10, 0 0 6px rgba(0, 0, 0, 0.7); animation: dmgpop 0.34s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+  .float.crit span { font-size: 31px; color: #ffb347; }
+  .float.info span { font-size: 16px; color: #a8e4ff; }
+  @keyframes dmgpop { 0% { transform: scale(0.3); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
+  @media (prefers-reduced-motion: reduce) { .float.dmg span { animation: none; } }
+  #vignette { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px 30px rgba(220, 30, 30, 0.75); opacity: 0; }
+  #vignette.hit { animation: hit 0.6s ease-out; }
+  @keyframes hit { 0% { opacity: 1; } 100% { opacity: 0; } }
+  #fade { position: fixed; inset: 0; background: #05070a; opacity: 0; pointer-events: none; transition: opacity 1.2s; display: grid; place-items: center; z-index: 4; }
+  #fade.on { opacity: 1; pointer-events: auto; }
+  #fade span { font: 600 20px/1.4 var(--font-display); color: var(--ink-dim); padding: 16px; text-align: center; }
+
+  /* action buttons (always shown; large on touch screens) */
+  /* Maverick: combat. Round buttons: a big ATTACK bottom-right, DODGE beside it, USE above, a space kept for BOW, CRAFT top-left. */
+  #actions { position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: calc(14px + env(safe-area-inset-bottom, 0px)); display: grid; grid-template-columns: auto auto auto; grid-template-rows: auto auto; gap: 10px; align-items: end; justify-items: center; }
+  .act { border-radius: 50%; border: 2px solid rgba(255, 236, 200, 0.35); background: rgba(24, 30, 26, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); display: grid; place-items: center; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; padding: 0; }
+  .act svg { width: 30px; height: 30px; }
+  .act:active { transform: scale(0.94); }
+  #btn-act { width: 68px; height: 68px; grid-column: 3; grid-row: 1; display: flex; flex-direction: column; gap: 2px; }
+  #btn-act.ready { border-color: var(--ember); box-shadow: 0 0 0 3px rgba(255, 179, 92, 0.25); }
+  #act-label { font-size: 12px; font-weight: 700; max-width: 70px; line-height: 1.1; text-align: center; }
+  #btn-atk { width: 84px; height: 84px; grid-column: 3; grid-row: 2; border-color: rgba(255, 179, 92, 0.6); }
+  #btn-atk svg { width: 38px; height: 38px; }
+  #btn-dodge { width: 60px; height: 60px; grid-column: 2; grid-row: 2; }
+  #btn-dodge svg, #btn-bow svg { width: 28px; height: 28px; }
+  #btn-bow { width: 52px; height: 52px; grid-column: 2; grid-row: 1; }
+  #btn-bow.later { visibility: hidden; }   /* the bow comes later: its place is kept */
+  #btn-craft { width: 48px; height: 48px; grid-column: 1; grid-row: 1; justify-self: end; }
+  #btn-craft.ready { border-color: var(--ember); animation: glow 1.6s ease-in-out infinite; }
+  /* Maverick: combat. Upright phones: two columns, so the joystick side stays clear (CRAFT sits where the bow will go) */
+  @media (orientation: portrait) and (max-width: 620px) { #btn-craft { grid-column: 2; grid-row: 1; justify-self: center; } #btn-bow.later { display: none; } #btn-atk { width: 78px; height: 78px; } }
+  @keyframes glow { 50% { box-shadow: 0 0 0 4px rgba(255, 179, 92, 0.35); } }
+  .act .k { position: absolute; transform: translate(22px, 22px); font: 700 12px/1 var(--font-body); background: rgba(255, 236, 200, 0.85); color: #2a2018; border-radius: 4px; padding: 2px 4px; }
+  .touch .act .k { display: none; }
+  #joy-ghost { position: fixed; left: calc(30px + env(safe-area-inset-left, 0px)); bottom: calc(30px + env(safe-area-inset-bottom, 0px)); width: 110px; height: 110px; border-radius: 50%; border: 2px dashed rgba(255, 240, 210, 0.25); pointer-events: none; display: none; }
+  .touch #joy-ghost { display: block; }
+
+  /* crafting */
+  #craft { position: fixed; inset: 0; display: grid; place-items: center; background: rgba(5, 8, 6, 0.45); z-index: 6; padding: 16px; box-sizing: border-box; }
+  .recipe.owned { opacity: 0.7; }
+  /* open settings or crafting: they sit on top, and the round buttons and item bar step aside */
+  .hud-tr { z-index: 3; }
+  body.panel-open .hud-tr { z-index: 6; }
+  body.panel-open #actions, body.panel-open #bottom, body.panel-open #joy-ghost,
+  body.craft-open #actions, body.craft-open #bottom, body.craft-open #coach { visibility: hidden; }
+  /* the start-over card */
+  #confirm { position: fixed; inset: 0; z-index: 8; display: grid; place-items: center; padding: 16px; background: rgba(5, 8, 6, 0.6); }
+  .confirm-card { width: min(340px, 100%); box-sizing: border-box; padding: 18px; display: grid; gap: 14px; background: rgba(24, 30, 26, 0.94); }
+  .confirm-card p { margin: 0; font: 600 18px/1.35 var(--font-display); text-align: center; }
+  .confirm-card .buttons { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .confirm-card .big-btn { font-size: 16px; padding: 12px 18px; min-height: 44px; }
+  .big-btn.danger { background: #e8685a; color: #1e0f0b; }
+  .craft-card { width: min(460px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; }
+  .craft-head { display: flex; justify-content: space-between; align-items: center; padding: 14px 16px 8px; }
+  .craft-head h2 { margin: 0; font: 600 20px/1 var(--font-display); }
+  #craft-list { overflow-y: auto; padding: 4px 12px 14px; display: grid; gap: 8px; touch-action: pan-y; overscroll-behavior: contain; }
+  .recipe { display: flex; align-items: center; gap: 10px; padding: 9px; border-radius: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid var(--glass-edge); }
+  .recipe.locked { opacity: 0.55; }
+  .r-icon svg { width: 38px; height: 38px; }
+  .r-body { flex: 1; display: grid; gap: 3px; min-width: 0; }
+  .r-name { font-weight: 700; font-size: 15px; } .r-name em { font-style: normal; font-size: 12px; color: var(--ember); margin-left: 4px; }
+  .r-desc { font-size: 12px; color: var(--ink-dim); line-height: 1.35; }
+  .r-needs { display: flex; flex-wrap: wrap; gap: 8px; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .need { display: inline-flex; align-items: center; gap: 3px; } .need svg { width: 18px; height: 18px; }
+  .need.no { color: #ff9a8a; } .need.ok { color: #b8e890; }
+  .r-btn { border-radius: 10px; border: 0; background: var(--ember); color: #2a2018; font-weight: 700; padding: 9px 14px; cursor: pointer; }
+  .r-btn:disabled { background: rgba(255, 255, 255, 0.12); color: var(--ink-dim); cursor: default; }
+
+  /* start screen */
+  #loading > div { padding-inline: max(16px, env(safe-area-inset-left, 0px)); box-sizing: border-box; max-width: 100vw; }
+  #loading .story { margin: 22px auto 0; max-width: 34ch; font-size: 16px; line-height: 1.6; color: var(--ink-dim); text-align: center; font-style: italic; }
+  #loading .buttons { margin-top: 26px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .big-btn { font: 600 18px/1 var(--font-display); border-radius: 14px; border: 0; padding: 14px 28px; background: var(--ember); color: #2a2018; cursor: pointer; }
+  .big-btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--glass-edge); }
+  .row input[type=range] { width: 110px; accent-color: var(--ember); }
+  .panel-btn { border-radius: 8px; border: 1px solid var(--glass-edge); background: rgba(255, 255, 255, 0.07); padding: 6px 10px; cursor: pointer; font-size: 13px; white-space: nowrap; }
+  @media (max-height: 460px) {
+    #objective { max-width: 260px; }
+    .touch .hud-tr { gap: 6px; }
+    #objective { max-width: 230px; padding: 7px 10px; } .o-text { font-size: 12px; }
+    #btn-act { width: 58px; height: 58px; } #btn-atk { width: 72px; height: 72px; } #btn-dodge { width: 54px; height: 54px; } #btn-bow { width: 46px; height: 46px; } #btn-craft { width: 44px; height: 44px; }   /* Maverick: combat */
+    .slot { width: 40px; height: 40px; } #bottom { max-width: calc(100vw - 300px); }
+  }
+
+  /* ---- touch screens: bigger targets, no tiny text ---- */
+  .touch .icon-btn { width: 44px; height: 44px; border-radius: 12px; }
+  .touch .stepper button { width: 48px; height: 40px; font-size: 16px; }
+  .touch .row { font-size: 15px; min-height: 40px; }
+  .touch .row select { font-size: 15px; padding: 8px 8px; }
+  .touch .row input[type=checkbox] { width: 24px; height: 24px; }
+  .touch .row input[type=range] { width: 130px; height: 28px; }
+  .touch .panel-btn { padding: 10px 14px; font-size: 15px; }
+  .touch .note { font-size: 13px; }
+  .touch #ticker-track { font-size: 15px; }
+  .touch #ticker-close { width: 44px; height: 30px; line-height: 30px; font-size: 15px; margin-right: -4px; }
+  .touch #prompt kbd { display: none; }
+  .touch #coach-close { width: 32px; height: 32px; line-height: 32px; }
+  .touch .c-body { font-size: 15px; }
+  .touch #act-label { font-size: 12px; }
+  .touch .slot { width: 52px; height: 52px; }
+  .touch .slot svg { width: 36px; height: 36px; }
+  .touch .slot .count { font-size: 13px; }
+  .touch .slot .use { font-size: 12px; top: -9px; padding: 1px 5px; }
+  .touch .o-text { font-size: 13px; }
+  .touch .r-desc, .touch .r-needs, .touch .r-name em { font-size: 13px; }
+  .touch .r-btn { padding: 12px 16px; font-size: 15px; }
+  .touch .toast { font-size: 14px; }
+  #fps-note { display: none; }
+  @media (max-width: 620px) and (orientation: portrait) {
+    #objective { max-width: min(290px, calc(100vw - 32px)); padding: 7px 10px; }
+    .o-text { font-size: 12px; }
+    #bottom { left: max(16px, env(safe-area-inset-left, 0px)); transform: none; max-width: calc(100vw - 200px); align-items: flex-start; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); }
+    #hint { bottom: calc(260px + env(safe-area-inset-bottom, 0px)); font-size: 12px; }
+    /* status bar in two tidy rows: hearts, food and water on top; meters, sky and buttons below */
+    #statusbar { column-gap: 10px; padding-left: max(8px, env(safe-area-inset-left, 0px)); padding-right: max(8px, env(safe-area-inset-right, 0px)); }
+    .sb-vitals { flex: 1 0 100%; justify-content: space-between; gap: 6px; }
+    :root { --ic: clamp(14px, calc((100vw - 92px) / 15), 21px); }
+    .icons { gap: 1px; padding: 2px 1px; }
+    .sb-meters { gap: 8px; }
+    .m-bar { width: 34px; }
+    #coach { max-width: 160px; padding-left: 10px; }
+    .touch .c-body, .c-body { font-size: 14px; }
+    /* Forge (look polish): a tidier small upright screen. Meters, clock and buttons share one row under the
+       hearts (the weather shows in the world and the news), a slimmer news strip, the goal tucks into a pill
+       that opens on tap, and pick-up messages are one short line. */
+    #ui-wx { display: none; }
+    .sb-sky { gap: 4px; } .sb-btns { gap: 2px; } .sb-meters { gap: 6px; } .m-bar { width: 28px; }
+    .reading .clock { font-size: 13px; }
+    :root { --ticker-h: 28px; }
+    .touch #ticker-track, #ticker-track { font-size: 13px; }
+    .t-badge { width: 20px; height: 20px; } .t-badge svg { width: 14px; height: 14px; }
+    .touch #ticker-close { height: 26px; line-height: 26px; }
+    #objective:not(.open) { box-sizing: border-box; min-height: 44px; padding: 0 14px; border-radius: 22px; grid-auto-flow: column; align-items: center; justify-content: start; gap: 8px; max-width: min(250px, calc(100vw - 32px)); }
+    #objective:not(.open) .o-text, .touch #objective:not(.open) .o-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+    #objective.open .o-text { font-size: 14px; }
+    #toasts { width: max-content; max-width: calc(100vw - 32px); }
+    #toasts .toast:not(:last-child) { display: none; }
+    .toast, .touch .toast { white-space: nowrap; padding: 5px 10px; font-size: 13px; }
+  }
+  #objective { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  @media (prefers-reduced-motion: no-preference) { #objective { transition: border-radius 0.2s; } }
+  @media (max-width: 359px) and (orientation: portrait) { .reading .clock { display: none; } }
+  /* narrow or phone-sized screens: icons only for the sky (the words are in the settings and the news) */
+  @media (max-width: 1099px) { .sky-label, .sb-sky .place { display: none; } }
+  @media (orientation: landscape) and (max-width: 1099px) {
+    :root { --ic: clamp(15px, calc((100vw - 380px) / 17), 21px); }
+    #statusbar { column-gap: 10px; }
+    .sb-vitals { gap: 8px; } .icons { gap: 1px; }
+  }
+  @media (orientation: landscape) and (max-width: 700px) {
+    .m-bar { width: 30px; } .sb-meters { gap: 6px; } .sb-sky { gap: 6px; }
+    .reading .clock { display: none; }
+  }
+  /* sideways phones: the status bar stays one slim row (icons shrink to fit, buttons a little smaller) */
+  @media (orientation: landscape) and (max-height: 500px) {
+    #statusbar { flex-wrap: nowrap; column-gap: 8px; padding-top: calc(2px + env(safe-area-inset-top, 0px)); padding-bottom: 2px; }
+    :root { --ic: clamp(14px, calc((100vw - env(safe-area-inset-left, 0px) - env(safe-area-inset-right, 0px) - 470px) / 17), 21px); }
+    .sb-vitals { gap: 6px; } .sb-meters { gap: 6px; } .sb-sky { gap: 6px; } .sb-btns { gap: 4px; }
+    .lv { width: 32px; height: 32px; }
+    .touch .icon-btn { width: 40px; height: 40px; }
+  }
+  @media (orientation: landscape) and (max-height: 500px) and (max-width: 640px) { #ui-wx { display: none; } .m-bar { width: 24px; } }
+  /* Atlas: big sideways phones (up to ~1000 px wide) ran out of room, cutting off Settings. Keep every button
+     finger-sized (44 px), drop the clock words and the Build label, and let the vitals shrink instead. */
+  @media (orientation: landscape) and (max-height: 500px) and (max-width: 1000px) {
+    .touch .icon-btn { width: 44px; height: 44px; }
+    .reading .clock, #ui-wx { display: none; }
+    #btn-build span { display: none; } #btn-build { padding: 0; width: 44px; justify-content: center; }
+    #statusbar > * { min-width: 0; }
+    .sb-btns { flex-shrink: 0; }
+  }
+  @media (orientation: landscape) and (max-width: 559px) { #statusbar { flex-wrap: wrap; } }   /* too narrow for one row */
+  /* the smallest sideways phones: when the news button is showing, the sky icons make room for it */
+  @media (orientation: landscape) and (max-width: 620px) { body.no-ticker .sb-sky .reading { display: none; } }
+  /* short landscape phones: the tip goes top-left, under the news, clear of the buttons and the middle */
+  @media (orientation: landscape) and (max-height: 460px) {
+    #coach { top: calc(8px + var(--bar-h) + var(--ticker-h)); left: max(16px, env(safe-area-inset-left, 0px)); right: auto; bottom: auto; max-width: min(260px, 40vw); }
+    #coach.arrow .c-arrow { display: none; }
+    .touch .c-body, .c-body { font-size: 13px; }
+  }
+  @media (prefers-reduced-motion: reduce) { #toast.show { animation-duration: 0.01s; } }
+
+  /* ---- character creator ("Who are you?"): the preview is the real explorer in the world, framed inside #cc-stage ---- */
+  #creator { position: fixed; inset: 0; z-index: 7; display: grid; grid-template-rows: minmax(150px, 1fr) auto; box-sizing: border-box;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) 0 env(safe-area-inset-left, 0px); }
+  body.creator-open #statusbar, body.creator-open #ticker, body.creator-open .hud-tr, body.creator-open #actions, body.creator-open #bottom,
+  body.creator-open #joy-ghost, body.creator-open #coach, body.creator-open #stick, body.creator-open #floats { visibility: hidden; }
+  #cc-stage { position: relative; min-height: 0; touch-action: none; cursor: grab; }
+  #cc-stage:active { cursor: grabbing; }
+  .cc-spin { position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); padding: 5px 12px; border-radius: 999px; background: rgba(12, 17, 14, 0.62); font-size: 12px; font-weight: 700; color: var(--ink); white-space: nowrap; pointer-events: none; }
+  .cc-panel { display: flex; flex-direction: column; min-height: 0; max-height: 68dvh; width: 100%; box-sizing: border-box;
+    padding-inline: max(0px, calc((100% - 560px) / 2));   /* a full-width sheet; the choices stay in a 560px column */
+    background: rgba(20, 26, 22, 0.94); border-radius: 18px 18px 0 0; border-bottom: 0; }
+  .cc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 12px 12px 6px 16px; }
+  .cc-head h2 { margin: 0; font: 600 23px/1.1 var(--font-display); }
+  #cc-close { width: 44px; height: 44px; flex: none; font-size: 16px; }
+  .cc-scroll { min-height: 0; overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; -webkit-overflow-scrolling: touch; padding: 2px 16px 12px; display: grid; gap: 12px; align-content: start; }
+  .cc-scroll.more { -webkit-mask-image: linear-gradient(#000 calc(100% - 30px), rgba(0, 0, 0, 0.2)); mask-image: linear-gradient(#000 calc(100% - 30px), rgba(0, 0, 0, 0.2)); }
+  fieldset.cc-group { border: 0; margin: 0; padding: 0; min-width: 0; display: grid; gap: 6px; }
+  .cc-group legend, .cc-label { padding: 0; margin-bottom: 6px; font: 600 12px/1 var(--font-display); letter-spacing: 0.14em; text-transform: uppercase; color: var(--ember); }
+  .cc-opt { position: relative; cursor: pointer; display: block; }
+  .cc-opt input { position: absolute; left: 50%; top: 50%; width: 1px; height: 1px; margin: 0; opacity: 0; pointer-events: none; }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  #cc-bodies { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .cc-body, .cc-chip { display: flex; align-items: center; border-radius: 14px; border: 2px solid var(--glass-edge); background: rgba(255, 255, 255, 0.06); transition: background-color 0.15s, border-color 0.15s; }
+  .cc-body { justify-content: center; gap: 8px; min-height: 58px; font: 600 18px/1 var(--font-display); }
+  .cc-fig svg { display: block; width: 42px; height: 42px; }
+  #cc-hair { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+  .cc-chip { gap: 5px; min-height: 46px; padding: 0 6px; border-radius: 12px; font-size: 14px; font-weight: 700; }
+  .cc-head-ic svg { display: block; width: 28px; height: 28px; flex: none; }
+  .cc-opt:has(input:checked) .cc-body, .cc-opt:has(input:checked) .cc-chip { border-color: var(--ember); background: rgba(255, 179, 92, 0.2); }
+  .cc-opt:has(input:focus-visible) .cc-body, .cc-opt:has(input:focus-visible) .cc-chip, .sw:has(input:focus-visible) .dot { outline: 2px solid #fff; outline-offset: 2px; }
+  .cc-swatches { display: flex; flex-wrap: wrap; gap: 3px; }
+  .sw { width: 44px; height: 44px; display: grid; place-items: center; }
+  .sw .dot { width: 34px; height: 34px; border-radius: 50%; background: var(--c); box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.22), 0 0 0 1px rgba(255, 236, 200, 0.25); transition: box-shadow 0.15s; }
+  .sw:has(input:checked) .dot { box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.22), 0 0 0 3px #1a201c, 0 0 0 6px var(--ember); }
+  .cc-name { display: grid; }
+  #cc-name { width: 100%; min-height: 46px; box-sizing: border-box; padding: 0 12px; border-radius: 12px; border: 1px solid var(--glass-edge); background: rgba(0, 0, 0, 0.35); color: var(--ink); font: 700 16px var(--font-body); -webkit-user-select: text; user-select: text; }
+  #cc-name::placeholder { color: var(--ink-dim); opacity: 0.8; }
+  .cc-foot { display: flex; gap: 10px; padding: 10px 16px calc(12px + env(safe-area-inset-bottom, 0px)); border-top: 1px solid var(--glass-edge); }
+  .cc-foot .big-btn { flex: 1 1 0; min-height: 50px; padding: 12px 10px; }
+  .cc-foot .big-btn.ghost { flex: 0 1 auto; padding-inline: 16px; }
+  /* sideways screens: the preview on the left, the choices in a column on the right */
+  @media (orientation: landscape) {
+    #creator { grid-template-rows: minmax(0, 1fr); grid-template-columns: minmax(0, 1fr) minmax(310px, min(380px, 50vw)); }
+    .cc-panel { max-height: none; height: 100%; padding-inline: 0; border-radius: 18px 0 0 0; border-right: 0; }
+    .cc-head h2 { font-size: 21px; }
+  }
+  @media (orientation: landscape) and (max-height: 500px) {
+    .cc-head { padding-top: 8px; padding-bottom: 4px; }
+    .cc-scroll { gap: 10px; padding-inline: 14px; }
+    .cc-body { min-height: 50px; }
+    .cc-foot { padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+    .cc-foot .big-btn { min-height: 46px; }
+  }
+  /* short upright phones (iPhone SE): a little tighter, so more choices show before scrolling */
+  @media (orientation: portrait) and (max-height: 700px) {
+    .cc-panel { max-height: 70dvh; }
+    .cc-head { padding-top: 8px; padding-bottom: 2px; }
+    .cc-head h2 { font-size: 20px; }
+    .cc-scroll { gap: 10px; }
+    .cc-body { min-height: 50px; }
+    .cc-foot { padding-top: 8px; padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px)); }
+    .cc-foot .big-btn { min-height: 46px; }
+  }
+  /* big screens: a floating card */
+  @media (orientation: landscape) and (min-height: 640px) {
+    #creator { padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(16px, env(safe-area-inset-bottom, 0px)) env(safe-area-inset-left, 0px); }
+    .cc-panel { height: auto; max-height: 100%; align-self: center; border-radius: 18px; border-right: 1px solid var(--glass-edge); border-bottom: 1px solid var(--glass-edge); }
+  }
+  @media (prefers-reduced-motion: reduce) { .cc-body, .cc-chip, .sw .dot { transition: none; } }
+</style>
+<script type="importmap">
+  { "imports": { "three": "./vendor/three.module.min.js", "three/addons/": "./vendor/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="game" aria-label="Sparkwild game world"></canvas>
+
+<header id="statusbar">
+  <div class="sb-vitals">
+    <div class="lv" id="sb-level" role="img" aria-label="Level 1"><svg viewBox="0 0 36 36" aria-hidden="true"><circle class="lv-track" cx="18" cy="18" r="15.5"/><circle class="lv-prog" id="lv-prog" cx="18" cy="18" r="15.5" stroke-dasharray="0 100"/></svg><span id="lv-num">Lv 1</span></div>
+    <div class="icons" id="sb-health" role="img" aria-label="Health"></div>
+    <div class="icons" id="sb-food" role="img" aria-label="Food"></div>
+    <div class="icons" id="sb-water" role="img" aria-label="Water"></div>
+  </div>
+  <div class="sb-meters">
+    <div class="meter" id="sb-warmth" role="img" aria-label="Warmth" title="Warmth"></div>
+    <div class="meter" id="sb-energy" role="img" aria-label="Energy" title="Energy"></div>
+  </div>
+  <div class="sb-sky">
+    <span class="place" id="ui-place">Mossvale Woods</span>
+    <span class="reading" id="ui-time"><span id="ui-sky-icon"></span><span class="sky-label" id="ui-phase">Day</span><span class="clock" id="ui-clock">3:30 PM</span></span>
+    <span class="reading" id="ui-wx"><span id="ui-wx-icon"></span><span class="sky-label" id="ui-weather">Clear skies</span></span>
+    <span class="sb-btns">
+      <button class="icon-btn" id="btn-mute" aria-pressed="false" title="Sound on (tap to mute)" aria-label="Sound on (tap to mute)"></button>
+      <button class="icon-btn" id="btn-news" title="Show messages" aria-label="Show messages"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h10"/></svg></button>
+      <button class="icon-btn" id="btn-panel" aria-expanded="false" aria-controls="panel" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      </button>
+    </span>
+  </div>
+</header>
+
+<div class="hud-tr">
+  <div class="card" id="objective"></div>
+  <div class="card" id="panel" hidden>
+    <h2>Settings</h2>
+    <div class="row"><span>Time of day</span><span class="stepper"><button id="time-back" aria-label="3 hours back">−3h</button><button id="time-fwd" aria-label="3 hours forward">+3h</button></span></div>
+    <div class="row"><span>Weather</span><span class="stepper"><button id="wx-back" aria-label="Previous weather">‹</button><button id="wx-fwd" aria-label="Next weather">›</button></span></div>
+    <label class="row" for="opt-clock"><span>Clock keeps ticking</span><input type="checkbox" id="opt-clock" checked></label>
+    <label class="row" for="opt-weather"><span>Weather changes by itself</span><input type="checkbox" id="opt-weather" checked></label>
+    <label class="row" for="opt-speed"><span>One day lasts</span>
+      <select id="opt-speed"><option value="24" selected>24 minutes</option><option value="8">8 minutes</option><option value="2">2 minutes</option></select></label>
+    <label class="row" for="opt-look"><span>Art style</span>
+      <select id="opt-look"><option value="smooth">Clean and sharp</option><option value="pixel">Pixel art</option></select></label>
+    <label class="row" for="opt-quality"><span>Graphics</span>
+      <select id="opt-quality"><option value="low">Low (older phones)</option><option value="phone">Phone</option><option value="high">High (PC)</option></select></label>
+    <label class="row" for="opt-pixel"><span>Pixel size</span>
+      <select id="opt-pixel"><option value="2">Fine</option><option value="3">Medium</option><option value="4">Extra chunky</option></select></label>
+    <label class="row" for="opt-music"><span>Music</span><input type="range" id="opt-music" min="0" max="1" step="0.05" value="0.5"></label>
+    <label class="row" for="opt-sfx"><span>Sounds</span><input type="range" id="opt-sfx" min="0" max="1" step="0.05" value="0.7"></label>
+    <label class="row" for="opt-tips"><span>Show tips</span><input type="checkbox" id="opt-tips" checked></label>
+    <label class="row" for="opt-flash"><span>Lightning flash</span><input type="checkbox" id="opt-flash" checked></label>
+    <div class="row"><span>Your explorer</span><button class="panel-btn" id="btn-look">Change look</button></div>
+    <div class="row"><span>Your progress saves on this device</span><button class="panel-btn" id="btn-new">Start over</button></div>
+    <p class="note" id="controls-note">E: use or gather. Space or click: attack. C: craft. Q and R: spin the view. Shift: run.</p>
+    <p class="note">Every land has its own weather. North: snowy peaks. East: sandy dunes. South: soggy marsh. West: breezy coast.</p>
+  </div>
+</div>
+
+<div id="ticker" role="status" aria-live="polite" title="Tap to hide">
+  <span class="t-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 16.5v-5a6 6 0 0 1 12 0v5l1.6 2H4.4z"/><path d="M10 21h4"/></svg></span>
+  <div class="t-window"><div id="ticker-track"></div></div>
+  <button id="ticker-close" aria-label="Hide messages">✕</button>
+</div>
+<div id="coach" class="card" role="status" aria-live="polite" hidden><span class="c-arrow" aria-hidden="true"></span><div class="c-body"><span class="c-label">Tip</span><span id="coach-text"></span></div><button id="coach-close" aria-label="Close tip">✕</button></div>
+<div id="floats"></div>
+<div id="vignette"></div>
+<div id="bottom"><div id="toasts"></div><div id="prompt" class="card" hidden></div><div id="hotbar" class="card"></div></div>
+<div id="joy-ghost"></div>
+<div id="actions">
+  <button class="act" id="btn-craft" title="Craft (C)" aria-label="Craft"><span id="ic-craft"></span><span class="k">C</span></button>
+  <button class="act" id="btn-act" title="Use or gather (E)" aria-label="Use or gather"><span id="ic-act"></span><span id="act-label">Use</span></button>
+  <button class="act" id="btn-atk" title="Attack (Space or click). Tap for combos, hold for a spin" aria-label="Attack. Tap for combos, hold for a spin"><span id="ic-atk"></span><span class="k">Space</span></button>
+  <!-- Maverick: combat. DODGE rolls; the BOW button is a placeholder for later. -->
+  <button class="act" id="btn-dodge" title="Dodge roll (X or right-click)" aria-label="Dodge roll"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 15a8 8 0 0 1 14.5-4.6"/><path d="M19.5 5.5v5h-5"/><path d="M5 19h7M8 22h6"/></svg><span class="k">X</span></button>
+  <button class="act later" id="btn-bow" title="Bow (coming soon)" aria-label="Bow (coming soon)" disabled tabindex="-1"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3c7 3 7 15 0 18"/><path d="M6 3v18"/><path d="M4 12h15M16 9l3 3-3 3"/></svg></button>
+</div>
+<div id="craft" hidden><div class="card craft-card"><div class="craft-head"><h2>Craft and build</h2><button class="icon-btn" id="craft-close" aria-label="Close">✕</button></div><div id="craft-list"></div></div></div>
+<div id="fade"><span></span></div>
+<div id="confirm" role="dialog" aria-modal="true" aria-labelledby="confirm-text" hidden><div class="card confirm-card">
+  <p id="confirm-text">Start over? This erases your saved progress. All of it, for good.</p>
+  <div class="buttons"><button class="big-btn danger" id="confirm-yes">Erase and restart</button><button class="big-btn ghost" id="confirm-no">Keep playing</button></div>
+</div></div>
+
+<div id="creator" role="dialog" aria-modal="true" aria-labelledby="cc-title" hidden>
+  <div id="cc-stage" aria-hidden="true"><span class="cc-spin">Drag to spin</span></div>
+  <div class="cc-panel card">
+    <div class="cc-head"><h2 id="cc-title">Who are you?</h2><button class="icon-btn" id="cc-close" aria-label="Back" title="Back">✕</button></div>
+    <div class="cc-scroll">
+      <fieldset class="cc-group"><legend class="sr">Body</legend><div id="cc-bodies"></div></fieldset>
+      <fieldset class="cc-group"><legend>Skin</legend><div class="cc-swatches" id="cc-skin"></div></fieldset>
+      <fieldset class="cc-group"><legend>Hair</legend><div id="cc-hair"></div></fieldset>
+      <fieldset class="cc-group"><legend>Hair color</legend><div class="cc-swatches" id="cc-hairColor"></div></fieldset>
+      <fieldset class="cc-group"><legend>Outfit</legend><div class="cc-swatches" id="cc-outfit"></div></fieldset>
+      <label class="cc-name" for="cc-name"><span class="cc-label">Name</span>
+        <input id="cc-name" type="text" maxlength="14" placeholder="Wanderer" autocomplete="off" autocapitalize="words" spellcheck="false" enterkeyhint="done"></label>
+    </div>
+    <div class="cc-foot"><button class="big-btn ghost" id="cc-random">Randomize</button><button class="big-btn" id="cc-go">Let's go!</button></div>
+  </div>
+</div>
+
+<div id="stick" hidden><div id="knob"></div></div>
+
+<div id="loading"><div>
+  <div class="title">Sparkwild</div>
+  <div class="tagline">Build a warm life in the wild.</div>
+  <div class="sub" id="loading-text">Growing the forest, one leaf at a time…</div>
+  <p class="story" id="story-open" hidden>You wake in soft moss under two moons.<br>Your pockets are empty. Not even a snack.<br>Your hand is warm, marked with a small flame.<br>Somewhere nearby, a waterfall is singing.</p>
+  <div class="buttons" id="start-buttons" hidden>
+    <button class="big-btn" id="btn-begin">Begin</button>
+    <button class="big-btn ghost" id="btn-fresh" hidden>Start over</button>
+  </div>
+</div></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
